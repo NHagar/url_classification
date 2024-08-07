@@ -6,8 +6,10 @@ authors = ["NHagar <nicholasrhagar@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.13"
+python = ">=3.9,<3.13"
 datasets = "^2.20.0"
+pandas = "^2.2.2"
+kaggle = "^1.6.17"
 
 
 [tool.poetry.group.dev.dependencies]
