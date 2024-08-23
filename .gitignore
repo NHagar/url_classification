@@ -2,3 +2,4 @@ data/
 models/
 fine_tuned_model/
 results/
+__pycache__/

@@ -1,7 +1,7 @@
 import argparse
 
-from data_processing.datasets import load_data, make_splits
-from model_training.models import train_bert_clf, train_distant_labeler, train_xgboost
+from url_classification.data_processing.datasets import load_data, make_splits
+from url_classification.model_training.models import train_bert_clf, train_distant_labeler, train_xgboost
 
 # command line arguments for selecting which dataset to train on
 parser = argparse.ArgumentParser()
@@ -21,4 +21,4 @@ if __name__ == "__main__":
     # train xgboost model
     train_xgboost(train["text"], train["y"], output_name=args.dataset)
 
-    test.to_csv(f"../../data/processed/{args.dataset}_test.csv", index=False)
+    test.to_csv(f"data/processed/{args.dataset}_test.csv", index=False)

@@ -7,7 +7,7 @@ WITH data AS (
 SELECT
     *
 FROM
-    '../../data/raw/news_categories.parquet'
+    'data/raw/news_categories.parquet'
 ),
 total AS (
 SELECT COUNT(*) AS total FROM data
@@ -21,14 +21,14 @@ SELECT category, articles / total.total AS pct FROM counts, total
 SELECT d.*, d.headline || ' ' || d.short_description AS text, REPLACE(REPLACE(SPLIT_PART(d.link, '.com/', 2), '/', ' '), '-', ' ') AS x, category AS y FROM data d JOIN pcts USING (category) WHERE pct > 0.02
 """,
     "uci": """
-SELECT *, TITLE AS text, REPLACE(REPLACE(SPLIT_PART(URL, '.com/', 2), '/', ' '), '-', ' ') AS x, CATEGORY AS y FROM '../../data/raw/uci_categories.parquet'
+SELECT *, TITLE AS text, REPLACE(REPLACE(SPLIT_PART(URL, '.com/', 2), '/', ' '), '-', ' ') AS x, CATEGORY AS y FROM 'data/raw/uci_categories.parquet'
 """,
     "recognasumm": """
 WITH data AS (
 SELECT
     *
 FROM
-    '../../data/raw/recognasumm.parquet'
+    'data/raw/recognasumm.parquet'
 ),
 total AS (
 SELECT COUNT(*) AS total FROM data
@@ -45,8 +45,8 @@ SELECT d.*, d.Titulo || ' ' || d.Subtitulo AS text, REPLACE(REPLACE(SPLIT_PART(R
 
 MAPPING_PATHS = {
     "huffpo": None,
-    "uci": "../../data/uci_categories_attributed.csv",
-    "recognasumm": "../../data/recognasumm_categories_attributed.csv"
+    "uci": "data/uci_categories_attributed.csv",
+    "recognasumm": "data/recognasumm_categories_attributed.csv"
 }
 
 def load_data(query_name):
