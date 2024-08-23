@@ -20,3 +20,5 @@ if __name__ == "__main__":
 
     # train xgboost model
     train_xgboost(train["text"], train["y"], output_name=args.dataset)
+
+    test.to_csv(f"../../data/processed/{args.dataset}_test.csv", index=False)
