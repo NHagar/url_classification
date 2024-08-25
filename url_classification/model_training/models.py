@@ -28,11 +28,16 @@ def train_bert_clf(X_train, y_train, X_val, y_val, model_name='distilbert-base-u
     train_dataset = Dataset.from_dict({"text": X_train, "label": y_train})
     val_dataset = Dataset.from_dict({"text": X_val, "label": y_val})
 
-    train_dataset = train_dataset.map(tokenize, batched=True)
-    val_dataset = val_dataset.map(tokenize, batched=True)
+    train_dataset = train_dataset.map(tokenize, batched=True, batch_size=len(train_dataset))
+    val_dataset = val_dataset.map(tokenize, batched=True, batch_size=len(val_dataset))
 
     # move model to gpu
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('mps')
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+    else:
+        device = torch.device('cpu')    
     model.to(device)
 
     # train model
