@@ -27,11 +27,11 @@ def train_bert_clf(X_train, y_train, X_val, y_val, model_name='distilbert-base-u
         return tokenizer(batch['text'], padding=True, truncation=True, return_tensors='pt')
 
     train_dataset = Dataset.from_dict(
-        {"text": X_train, "label": y_train.tolist()}, 
+        {"text": X_train, "label": y_train.tolist()},
         features=Features({"text": Value("string"), "label": Value("int64")})
     )
     val_dataset = Dataset.from_dict(
-        {"text": X_val, "label": y_val.tolist()}, 
+        {"text": X_val, "label": y_val.tolist()},
         features=Features({"text": Value("string"), "label": Value("int64")})
     )
 
@@ -67,7 +67,7 @@ def train_bert_clf(X_train, y_train, X_val, y_val, model_name='distilbert-base-u
 
     model.save_pretrained(f'models/bert/{output_name}')
     tokenizer.save_pretrained(f'models/bert/{output_name}')
-    torch.save(le, f'models/bert/{output_name}/label_encoder.pt')    
+    torch.save(le, f'models/bert/{output_name}/label_encoder.pt')
 
     return model, tokenizer, le
 
@@ -91,7 +91,7 @@ def train_distant_labeler(train, mapping_file="../../data/uci_categories_attribu
         X_train = train["text"]
         y_train = train["y"]
 
-    
+
     # count vectorize X's
     vectorizer = CountVectorizer()
     X_train_counts = vectorizer.fit_transform(X_train)
@@ -111,7 +111,7 @@ def train_distant_labeler(train, mapping_file="../../data/uci_categories_attribu
 
 
 def train_xgboost(X_train, y_train, output_name="huffpo"):
-    embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    embedder = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct")
     X_train = embedder.encode(X_train.tolist())
 
     # encode labels
