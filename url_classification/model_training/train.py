@@ -13,7 +13,12 @@ if __name__ == "__main__":
     train, val, test = make_splits(df)
 
     # train BERT model
-    train_bert_clf(train.x, train.y, val.x, val.y, output_name=args.dataset)
+    if args.dataset == "recongasumm":
+        bert_model_name = "distilbert-base-multilingual-cased"
+    else:
+        bert_model_name = "distilbert-base-uncased"
+
+    train_bert_clf(train.x, train.y, val.x, val.y, model_name=bert_model_name, output_name=args.dataset)
 
     # train distant labeler
     train_distant_labeler(train, mapping_file=mapping_fpath, output_name=args.dataset)
