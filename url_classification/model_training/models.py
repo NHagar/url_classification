@@ -41,6 +41,15 @@ def train_bert_clf(X_train, y_train, X_val, y_val, model_name='distilbert-base-u
     train_dataset.set_format("torch")
     val_dataset.set_format("torch")
 
+    # move model to correct device
+    if torch.cuda.is_available():
+        model.to('cuda')
+    # check for mps
+    elif torch.backends.mps.is_available():
+        model.to('mps')
+    else:
+        model.to('cpu')
+
     # train model
     training_args = TrainingArguments(
         output_dir='./results',
