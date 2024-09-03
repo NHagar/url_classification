@@ -122,19 +122,20 @@ def evaluate_distant_labeling(dataset):
 
 
 def evaluate_xgboost(dataset):
-    data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv' ").fetch_df()
-
     embedder = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct")
-
-    X = embedder.encode(data["text"].tolist())
-
-    # load label encoder and model
+    # Load label encoder and model
     label_encoder = torch.load(f"models/xgboost/{dataset}/label_encoder.pt")
     model = torch.load(f"models/xgboost/{dataset}/model.pt")
 
-    # run inference
-    y_pred = model.predict(X)
-    # add predictions to the DataFrame
+    # Load data in batches
+    batch_size = 1000
+    y_pred = []
+    for chunk in tqdm(con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv'").fetch_df_chunk(batch_size)):
+        X_batch = embedder.encode(chunk['text'].tolist())
+        y_pred_batch = model.predict(X_batch)
+        y_pred.extend(y_pred_batch)
+
+    data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv'").fetch_df()
     data['y_pred'] = y_pred
 
     # Encode the labels
