@@ -130,7 +130,7 @@ def evaluate_xgboost(dataset):
     # Load data in batches
     batch_size = 1000
     y_pred = []
-    for chunk in tqdm(con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv'").fetch_df_chunk(batch_size)):
+    for chunk in tqdm(pd.read_csv(f"data/processed/{dataset}_test.csv", chunksize=batch_size)):
         X_batch = embedder.encode(chunk['text'].tolist())
         y_pred_batch = model.predict(X_batch)
         y_pred.extend(y_pred_batch)
