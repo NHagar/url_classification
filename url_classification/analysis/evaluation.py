@@ -16,6 +16,16 @@ def evaluate_bert(dataset):
     model = DistilBertForSequenceClassification.from_pretrained(model_path)
     label_encoder = torch.load(f"{model_path}/label_encoder.pt")
 
+    # Move model to GPU if available
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
+    model = model.to(device)
+
     texts = data['x'].tolist()
     # Tokenize the input
     encodings = tokenizer(texts, truncation=True, padding=True, return_tensors="pt")
@@ -31,10 +41,14 @@ def evaluate_bert(dataset):
     with torch.no_grad():
         for batch in tqdm(dataloader, total=len(dataloader)):
             input_ids, attention_mask = batch
+            # Move batch to GPU
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
             outputs = model(input_ids, attention_mask=attention_mask)
             logits = outputs.logits
             predicted_classes = torch.argmax(logits, dim=1)
-            predictions.extend(predicted_classes.tolist())
+            # Move predictions back to CPU for extending the list
+            predictions.extend(predicted_classes.cpu().tolist())
 
     # Add predictions to the DataFrame
     data['y_pred'] = predictions
