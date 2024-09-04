@@ -128,27 +128,16 @@ def evaluate_xgboost(dataset):
 
     embedder = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct")
 
-    # Load data in batches
-    batch_size = 1000
-    y_pred = []
-    for chunk in tqdm(pd.read_csv(f"data/processed/{dataset}_test.csv", chunksize=batch_size)):
-        chunk = chunk[chunk.text.str.len() < 1000]
-        X_batch = embedder.encode(chunk['text'].tolist())
-        y_pred_batch = model.predict(X_batch)
-        y_pred.extend(y_pred_batch)
-
-    data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv'").fetch_df()
+    data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv' WHERE LENGTH(text) < 2500").fetch_df()
+    X = embedder.encode(data['text'].tolist())
+    y_pred = model.predict(X)
     data['y_pred'] = y_pred
-
-    # Encode the labels
     data["y_encoded"] = label_encoder.transform(data["y"])
-
-    # Calculate metrics
     accuracy = accuracy_score(data["y_encoded"], data["y_pred"])
     precision = precision_score(data["y_encoded"], data["y_pred"], average="macro")
     recall = recall_score(data["y_encoded"], data["y_pred"], average="macro")
     f1 = f1_score(data["y_encoded"], data["y_pred"], average="macro")
-
+    
     return {
         "model": "xgboost",
         "dataset": dataset,
