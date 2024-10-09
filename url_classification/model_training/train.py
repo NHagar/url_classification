@@ -36,16 +36,19 @@ def process_bert_args(dataset, text_variant, url_variant, train, val):
         if dataset in ["recognasumm", "huffpo"]:
             train_x = train[f"bert_{text_variant}"]
             val_x = val[f"bert_{text_variant}"]
+            output_name = f"{dataset}_{text_variant}"
         elif dataset == "uci":
             raise ValueError("UCI dataset does not have text variants")
     elif url_variant is not None:
         train_x = train[f"x_{url_variant}"]
         val_x = val[f"x_{url_variant}"]
+        output_name = f"{dataset}_{url_variant}"
     else:
         train_x = train.x
         val_x = val.x
+        output_name = dataset
 
-    return train_x, val_x
+    return train_x, val_x, output_name
 
 
 if __name__ == "__main__":
@@ -60,7 +63,7 @@ if __name__ == "__main__":
         else:
             bert_model_name = "distilbert-base-uncased"
 
-        train_x, val_x = process_bert_args(
+        train_x, val_x, output_name = process_bert_args(
             args.dataset, args.bert_variant, args.bert_url, train, val
         )
 
@@ -70,7 +73,7 @@ if __name__ == "__main__":
             val_x,
             val.y,
             model_name=bert_model_name,
-            output_name=args.dataset,
+            output_name=output_name,
         )
 
     # train distant labeler
