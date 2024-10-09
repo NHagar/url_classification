@@ -79,8 +79,11 @@ def load_data(query_name):
     q = QUERIES[query_name]
 
     data = con.execute(q).fetch_df()
-    data["x"] = data.URL.apply(lambda x: urlparse(x).path)
-    data["x"] = data.x.str.replace(r"[/\-\\]", " ", regex=True)
+    data["parsed"] = data.URL.apply(lambda x: urlparse(x))
+    data["x_netloc_path"] = data.parsed.apply(lambda x: x.netloc + x.path)
+    data["x_path"] = data.parsed.apply(lambda x: x.path)
+
+    data["x"] = data.x_path.str.replace(r"[/\-\\]", " ", regex=True)
     data = data[data.x.str.contains(r"\w", regex=True)]
 
     return data, MAPPING_PATHS[query_name]
