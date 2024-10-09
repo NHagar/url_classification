@@ -30,6 +30,24 @@ parser.add_argument(
     help="Optional URL variants for testing BERT",
 )
 
+
+def process_bert_args(dataset, text_variant, url_variant, train, val):
+    if text_variant is not None:
+        if dataset in ["recognasumm", "huffpo"]:
+            train_x = train[f"bert_{text_variant}"]
+            val_x = val[f"bert_{text_variant}"]
+        elif dataset == "uci":
+            raise ValueError("UCI dataset does not have text variants")
+    elif url_variant is not None:
+        train_x = train[f"x_{url_variant}"]
+        val_x = val[f"x_{url_variant}"]
+    else:
+        train_x = train.x
+        val_x = val.x
+
+    return train_x, val_x
+
+
 if __name__ == "__main__":
     args = parser.parse_args()
     df, mapping_fpath = load_data(args.dataset)
@@ -42,10 +60,14 @@ if __name__ == "__main__":
         else:
             bert_model_name = "distilbert-base-uncased"
 
+        train_x, val_x = process_bert_args(
+            args.dataset, args.bert_variant, args.bert_url, train, val
+        )
+
         train_bert_clf(
-            train.x,
+            train_x,
             train.y,
-            val.x,
+            val_x,
             val.y,
             model_name=bert_model_name,
             output_name=args.dataset,
