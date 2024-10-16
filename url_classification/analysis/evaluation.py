@@ -11,7 +11,7 @@ from transformers import DistilBertForSequenceClassification, DistilBertTokenize
 def evaluate_bert(dataset, text_variant=None, url_variant=None):
     data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv' ").fetch_df()
     if text_variant is not None:
-        texts = data[f"bert_{text_variant}"].tolist()
+        texts = data[f"bert_{text_variant}"].fillna("").tolist()
         model_path = f"models/bert/{dataset}_{text_variant}"
     elif url_variant is not None:
         texts = data[f"x_{url_variant}"].tolist()
@@ -184,7 +184,7 @@ if __name__ == "__main__":
         evaluation_metrics.append(evaluate_distant_labeling(d))
         evaluation_metrics.append(evaluate_xgboost(d))
 
-        if "dataset" != "uci":
+        if d != "uci":
             for t in text_variants:
                 print(f"Evaluating {d} with text variant {t}")
                 evaluation_metrics.append(evaluate_bert(d, text_variant=t))
