@@ -1,16 +1,25 @@
 import duckdb
 import pandas as pd
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification
 import torch
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
+from transformers import DistilBertForSequenceClassification, DistilBertTokenizerFast
 
-def evaluate_bert(dataset):
+
+def evaluate_bert(dataset, text_variant=None, url_variant=None):
     data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv' ").fetch_df()
-
-    model_path = f"models/bert/{dataset}"
+    # link,headline,category,short_description,authors,date,URL,text,bert_a,bert_b,bert_c,y,parsed,x_netloc_path,x_path,x
+    if text_variant is not None:
+        texts = data[f"bert_{text_variant}"].tolist()
+        model_path = f"models/bert/{dataset}_{text_variant}"
+    elif url_variant is not None:
+        texts = data[f"x_{url_variant}"].tolist()
+        model_path = f"models/bert/{dataset}_{url_variant}"
+    else:
+        texts = data["x"].tolist()
+        model_path = f"models/bert/{dataset}"
 
     tokenizer = DistilBertTokenizerFast.from_pretrained(model_path)
     model = DistilBertForSequenceClassification.from_pretrained(model_path)
@@ -26,12 +35,11 @@ def evaluate_bert(dataset):
 
     model = model.to(device)
 
-    texts = data['x'].tolist()
     # Tokenize the input
     encodings = tokenizer(texts, truncation=True, padding=True, return_tensors="pt")
 
     # Create a DataLoader for batch processing
-    ds = TensorDataset(encodings['input_ids'], encodings['attention_mask'])
+    ds = TensorDataset(encodings["input_ids"], encodings["attention_mask"])
     dataloader = DataLoader(ds, batch_size=64)  # Adjust batch size as needed
 
     # Run inference
@@ -51,7 +59,7 @@ def evaluate_bert(dataset):
             predictions.extend(predicted_classes.cpu().tolist())
 
     # Add predictions to the DataFrame
-    data['y_pred'] = predictions
+    data["y_pred"] = predictions
 
     # Encode the labels
     data["y_encoded"] = label_encoder.transform(data["y"])
@@ -68,7 +76,7 @@ def evaluate_bert(dataset):
         "accuracy": accuracy,
         "precision": precision,
         "recall": recall,
-        "f1": f1
+        "f1": f1,
     }
 
 
@@ -86,10 +94,12 @@ def evaluate_distant_labeling(dataset):
         labeled = data[data["y_pred"].notnull()]
         unlabeled = data[data["y_pred"].isnull()]
     else:
-        data = con.execute(f"SELECT text AS x, y, NULL AS y_pred FROM 'data/processed/{dataset}_test.csv' ").fetch_df()
+        data = con.execute(
+            f"SELECT text AS x, y, NULL AS y_pred FROM 'data/processed/{dataset}_test.csv' "
+        ).fetch_df()
         unlabeled = data
         labeled = None
-    
+
     # load in vectorizer and model
     vectorizer = torch.load(f"models/distant/{dataset}/vectorizer.pt")
     model = torch.load(f"models/distant/{dataset}/model.pt")
@@ -102,9 +112,9 @@ def evaluate_distant_labeling(dataset):
     # combine labeled and unlabeled data
     if labeled is not None:
         labeled = pd.concat([labeled, unlabeled])
-    else:   
+    else:
         labeled = unlabeled
-    
+
     # Calculate metrics
     accuracy = accuracy_score(labeled["y"], labeled["y_pred"])
     precision = precision_score(labeled["y"], labeled["y_pred"], average="macro")
@@ -117,7 +127,7 @@ def evaluate_distant_labeling(dataset):
         "accuracy": accuracy,
         "precision": precision,
         "recall": recall,
-        "f1": f1
+        "f1": f1,
     }
 
 
@@ -128,34 +138,34 @@ def evaluate_xgboost(dataset):
 
     embedder = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct")
 
-    data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv' WHERE LENGTH(text) < 2500").fetch_df()
-    X = embedder.encode(data['text'].tolist())
+    data = con.execute(
+        f"SELECT * FROM 'data/processed/{dataset}_test.csv' WHERE LENGTH(text) < 2500"
+    ).fetch_df()
+    X = embedder.encode(data["text"].tolist())
     y_pred = model.predict(X)
-    data['y_pred'] = y_pred
+    data["y_pred"] = y_pred
     data["y_encoded"] = label_encoder.transform(data["y"])
     accuracy = accuracy_score(data["y_encoded"], data["y_pred"])
     precision = precision_score(data["y_encoded"], data["y_pred"], average="macro")
     recall = recall_score(data["y_encoded"], data["y_pred"], average="macro")
     f1 = f1_score(data["y_encoded"], data["y_pred"], average="macro")
-    
+
     return {
         "model": "xgboost",
         "dataset": dataset,
         "accuracy": accuracy,
         "precision": precision,
         "recall": recall,
-        "f1": f1
+        "f1": f1,
     }
 
 
-
-
 if __name__ == "__main__":
-    con = duckdb.connect(':memory:')
+    con = duckdb.connect(":memory:")
     MAPPING_PATHS = {
         "huffpo": None,
         "uci": "data/uci_categories_attributed.csv",
-        "recognasumm": "data/recognasumm_categories_attributed.csv"
+        "recognasumm": "data/recognasumm_categories_attributed.csv",
     }
 
     datasets = ["huffpo", "uci", "recognasumm"]
@@ -167,5 +177,6 @@ if __name__ == "__main__":
         evaluation_metrics.append(evaluate_xgboost(d))
 
     # save to csv
-    pd.DataFrame(evaluation_metrics).to_csv("data/processed/evaluation_metrics.csv", index=False)
-
+    pd.DataFrame(evaluation_metrics).to_csv(
+        "data/processed/evaluation_metrics.csv", index=False
+    )
