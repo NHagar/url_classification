@@ -192,5 +192,5 @@ if __name__ == "__main__":
 
     # save to csv
     pd.DataFrame(evaluation_metrics).to_csv(
-        "data/processed/evaluation_metrics_with_variants.csv", index=False
+        "./data/processed/evaluation_metrics_with_variants.csv", index=False
     )
