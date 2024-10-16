@@ -10,7 +10,6 @@ from transformers import DistilBertForSequenceClassification, DistilBertTokenize
 
 def evaluate_bert(dataset, text_variant=None, url_variant=None):
     data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv' ").fetch_df()
-    # link,headline,category,short_description,authors,date,URL,text,bert_a,bert_b,bert_c,y,parsed,x_netloc_path,x_path,x
     if text_variant is not None:
         texts = data[f"bert_{text_variant}"].tolist()
         model_path = f"models/bert/{dataset}_{text_variant}"
@@ -73,6 +72,8 @@ def evaluate_bert(dataset, text_variant=None, url_variant=None):
     return {
         "model": "bert",
         "dataset": dataset,
+        "text_variant": text_variant,
+        "url_variant": url_variant,
         "accuracy": accuracy,
         "precision": precision,
         "recall": recall,
@@ -124,6 +125,8 @@ def evaluate_distant_labeling(dataset):
     return {
         "model": "distant_labeling",
         "dataset": dataset,
+        "text_variant": None,
+        "url_variant": None,
         "accuracy": accuracy,
         "precision": precision,
         "recall": recall,
@@ -153,6 +156,8 @@ def evaluate_xgboost(dataset):
     return {
         "model": "xgboost",
         "dataset": dataset,
+        "text_variant": None,
+        "url_variant": None,
         "accuracy": accuracy,
         "precision": precision,
         "recall": recall,
@@ -169,6 +174,8 @@ if __name__ == "__main__":
     }
 
     datasets = ["huffpo", "uci", "recognasumm"]
+    text_variants = ["a", "b", "c"]
+    url_variants = ["path", "netloc_path"]
     evaluation_metrics = []
 
     for d in datasets:
@@ -176,7 +183,14 @@ if __name__ == "__main__":
         evaluation_metrics.append(evaluate_distant_labeling(d))
         evaluation_metrics.append(evaluate_xgboost(d))
 
+        if "dataset" != "uci":
+            for t in text_variants:
+                evaluation_metrics.append(evaluate_bert(d, text_variant=t))
+
+            for u in url_variants:
+                evaluation_metrics.append(evaluate_bert(d, url_variant=u))
+
     # save to csv
     pd.DataFrame(evaluation_metrics).to_csv(
-        "data/processed/evaluation_metrics.csv", index=False
+        "data/processed/evaluation_metrics_with_variants.csv", index=False
     )
