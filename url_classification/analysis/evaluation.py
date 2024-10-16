@@ -179,15 +179,18 @@ if __name__ == "__main__":
     evaluation_metrics = []
 
     for d in datasets:
+        print(f"Evaluating {d}")
         evaluation_metrics.append(evaluate_bert(d))
         evaluation_metrics.append(evaluate_distant_labeling(d))
         evaluation_metrics.append(evaluate_xgboost(d))
 
         if "dataset" != "uci":
             for t in text_variants:
+                print(f"Evaluating {d} with text variant {t}")
                 evaluation_metrics.append(evaluate_bert(d, text_variant=t))
 
             for u in url_variants:
+                print(f"Evaluating {d} with url variant {u}")
                 evaluation_metrics.append(evaluate_bert(d, url_variant=u))
 
     # save to csv
