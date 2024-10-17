@@ -1,3 +1,5 @@
+import time
+
 import duckdb
 import pandas as pd
 import torch
@@ -34,6 +36,7 @@ def evaluate_bert(dataset, text_variant=None, url_variant=None):
 
     model = model.to(device)
 
+    start_time = time.perf_counter()
     # Tokenize the input
     encodings = tokenizer(texts, truncation=True, padding=True, return_tensors="pt")
 
@@ -56,6 +59,10 @@ def evaluate_bert(dataset, text_variant=None, url_variant=None):
             predicted_classes = torch.argmax(logits, dim=1)
             # Move predictions back to CPU for extending the list
             predictions.extend(predicted_classes.cpu().tolist())
+        end_time = time.perf_counter()
+
+    total_time = end_time - start_time
+    throughput = len(texts) / total_time
 
     # Add predictions to the DataFrame
     data["y_pred"] = predictions
@@ -78,6 +85,7 @@ def evaluate_bert(dataset, text_variant=None, url_variant=None):
         "precision": precision,
         "recall": recall,
         "f1": f1,
+        "throughput": throughput,
     }
 
 
@@ -104,10 +112,14 @@ def evaluate_distant_labeling(dataset):
     # load in vectorizer and model
     vectorizer = torch.load(f"models/distant/{dataset}/vectorizer.pt")
     model = torch.load(f"models/distant/{dataset}/model.pt")
+    start_time = time.perf_counter()
     # vectorize the text
     X = vectorizer.transform(unlabeled["x"])
     # run inference
     y_pred = model.predict(X)
+    end_time = time.perf_counter()
+    total_time = end_time - start_time
+    throughput = len(unlabeled) / total_time
     # add predictions to the DataFrame
     unlabeled["y_pred"] = y_pred
     # combine labeled and unlabeled data
@@ -131,6 +143,7 @@ def evaluate_distant_labeling(dataset):
         "precision": precision,
         "recall": recall,
         "f1": f1,
+        "throughput": throughput,
     }
 
 
@@ -144,8 +157,12 @@ def evaluate_xgboost(dataset):
     data = con.execute(
         f"SELECT * FROM 'data/processed/{dataset}_test.csv' WHERE LENGTH(text) < 2500"
     ).fetch_df()
+    start_time = time.perf_counter()
     X = embedder.encode(data["text"].tolist())
     y_pred = model.predict(X)
+    end_time = time.perf_counter()
+    total_time = end_time - start_time
+    throughput = len(data) / total_time
     data["y_pred"] = y_pred
     data["y_encoded"] = label_encoder.transform(data["y"])
     accuracy = accuracy_score(data["y_encoded"], data["y_pred"])
@@ -162,6 +179,7 @@ def evaluate_xgboost(dataset):
         "precision": precision,
         "recall": recall,
         "f1": f1,
+        "throughput": throughput,
     }
 
 
