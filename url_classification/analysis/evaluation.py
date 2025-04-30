@@ -9,6 +9,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 from transformers import DistilBertForSequenceClassification, DistilBertTokenizerFast
 
+con = duckdb.connect(":memory:")
+
 
 def evaluate_bert(dataset, text_variant=None, url_variant=None):
     data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv' ").fetch_df()
@@ -184,7 +186,6 @@ def evaluate_xgboost(dataset):
 
 
 if __name__ == "__main__":
-    con = duckdb.connect(":memory:")
     MAPPING_PATHS = {
         "huffpo": None,
         "uci": "data/uci_categories_attributed.csv",

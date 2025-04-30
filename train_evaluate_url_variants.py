@@ -84,7 +84,7 @@ def train_url_variant_models(dataset, variants, epochs, skip_training=False):
         if variant == "cleaned_path":
             train_x = train.x
             val_x = val.x
-            output_name = f"{dataset}_cleaned_path"
+            output_name = f"{dataset}"
         else:
             train_x = train[f"x_{variant}"]
             val_x = val[f"x_{variant}"]
