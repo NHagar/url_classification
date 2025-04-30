@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     # train BERT model
     if args.train_bert:
-        if args.dataset == "recongasumm":
+        if args.dataset == "recognasumm":
             bert_model_name = "distilbert-base-multilingual-cased"
         else:
             bert_model_name = "distilbert-base-uncased"

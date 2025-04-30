@@ -15,6 +15,8 @@ plt.xlabel("Model")
 plt.ylabel("Throughput (log scale)")
 
 
+print(df.groupby("model")["throughput"].mean())
+
 # save plot
 plt.savefig("./data/processed/throughput.png")
 
