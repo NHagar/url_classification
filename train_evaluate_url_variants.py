@@ -68,9 +68,8 @@ def train_url_variant_models(dataset, variants, epochs, skip_training=False):
 
     # Save test set for evaluation
     test_path = f"data/processed/{dataset}_test.csv"
-    if not os.path.exists(test_path):
-        print(f"Saving test set to {test_path}")
-        test.to_csv(test_path, index=False)
+    print(f"Saving test set to {test_path}")
+    test.to_csv(test_path, index=False)
 
     results = []
 
