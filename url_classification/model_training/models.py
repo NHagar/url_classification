@@ -1,41 +1,59 @@
 import os
 
-from datasets import Dataset, Features, Value
 import duckdb
+import torch
+import xgboost
+from datasets import Dataset, Features, Value
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.preprocessing import LabelEncoder
-import torch
-from transformers import DistilBertTokenizerFast, DistilBertForSequenceClassification, Trainer, TrainingArguments
-import xgboost
+from transformers import (
+    DistilBertForSequenceClassification,
+    DistilBertTokenizerFast,
+    Trainer,
+    TrainingArguments,
+)
 
 
-def train_bert_clf(X_train, y_train, X_val, y_val, model_name='distilbert-base-uncased', epochs=3, output_name="huffpo"):
+def train_bert_clf(
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    model_name="distilbert-base-uncased",
+    epochs=3,
+    output_name="huffpo",
+):
     # initialize resources
     le = LabelEncoder()
     tokenizer = DistilBertTokenizerFast.from_pretrained(model_name)
-    model = DistilBertForSequenceClassification.from_pretrained(model_name, num_labels=len(y_train.unique()))
+    model = DistilBertForSequenceClassification.from_pretrained(
+        model_name, num_labels=len(y_train.unique())
+    )
 
     # encode labels
     y_train = le.fit_transform(y_train).astype(int)
     y_val = le.transform(y_val).astype(int)
 
-
     # tokenize text and create datasets
     def tokenize(batch):
-        return tokenizer(batch['text'], padding=True, truncation=True, return_tensors='pt')
+        return tokenizer(
+            batch["text"], padding=True, truncation=True, return_tensors="pt"
+        )
 
     train_dataset = Dataset.from_dict(
         {"text": X_train, "label": y_train.tolist()},
-        features=Features({"text": Value("string"), "label": Value("int64")})
+        features=Features({"text": Value("string"), "label": Value("int64")}),
     )
     val_dataset = Dataset.from_dict(
         {"text": X_val, "label": y_val.tolist()},
-        features=Features({"text": Value("string"), "label": Value("int64")})
+        features=Features({"text": Value("string"), "label": Value("int64")}),
     )
 
-    train_dataset = train_dataset.map(tokenize, batched=True, batch_size=len(train_dataset))
+    train_dataset = train_dataset.map(
+        tokenize, batched=True, batch_size=len(train_dataset)
+    )
     val_dataset = val_dataset.map(tokenize, batched=True, batch_size=len(val_dataset))
 
     train_dataset.set_format("torch")
@@ -43,46 +61,48 @@ def train_bert_clf(X_train, y_train, X_val, y_val, model_name='distilbert-base-u
 
     # move model to correct device
     if torch.cuda.is_available():
-        model.to('cuda')
+        model.to("cuda")
     # check for mps
     elif torch.backends.mps.is_available():
-        model.to('mps')
+        model.to("mps")
     else:
-        model.to('cpu')
+        model.to("cpu")
 
     # train model
     training_args = TrainingArguments(
-        output_dir='./results',
+        output_dir="./results",
         num_train_epochs=epochs,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=64,
         warmup_steps=500,
         weight_decay=0.01,
-        logging_dir='./logs',
+        logging_dir="./logs",
     )
 
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=val_dataset
+        eval_dataset=val_dataset,
     )
 
     trainer.train()
 
     # save model, tokenizer and label encoder
     # make directory if it doesn't exist
-    os.makedirs(f'models/bert/{output_name}', exist_ok=True)
+    os.makedirs(f"models/bert/{output_name}", exist_ok=True)
 
-    model.save_pretrained(f'models/bert/{output_name}')
-    tokenizer.save_pretrained(f'models/bert/{output_name}')
-    torch.save(le, f'models/bert/{output_name}/label_encoder.pt')
+    model.save_pretrained(f"models/bert/{output_name}")
+    tokenizer.save_pretrained(f"models/bert/{output_name}")
+    torch.save(le, f"models/bert/{output_name}/label_encoder.pt")
 
     return model, tokenizer, le
 
 
-def train_distant_labeler(train, mapping_file="../../data/uci_categories_attributed.csv", output_name="huffpo"):
-    con = duckdb.connect(database=':memory:', read_only=False)
+def train_distant_labeler(
+    train, mapping_file="../../data/uci_categories_attributed.csv", output_name="huffpo"
+):
+    con = duckdb.connect(database=":memory:", read_only=False)
 
     if mapping_file is not None:
         data = con.execute(f"""
@@ -94,12 +114,11 @@ def train_distant_labeler(train, mapping_file="../../data/uci_categories_attribu
 
         data = data[data.y.notna()]
 
-        X_train= data['x']
-        y_train = data['y']
+        X_train = data["x"]
+        y_train = data["y"]
     else:
         X_train = train["text"]
         y_train = train["y"]
-
 
     # count vectorize X's
     vectorizer = CountVectorizer()
@@ -111,10 +130,10 @@ def train_distant_labeler(train, mapping_file="../../data/uci_categories_attribu
 
     # save model and vectorizer
     # make directory if it doesn't exist
-    os.makedirs(f'models/distant/{output_name}', exist_ok=True)
+    os.makedirs(f"models/distant/{output_name}", exist_ok=True)
 
-    torch.save(clf, f'models/distant/{output_name}/model.pt')
-    torch.save(vectorizer, f'models/distant/{output_name}/vectorizer.pt')
+    torch.save(clf, f"models/distant/{output_name}/model.pt")
+    torch.save(vectorizer, f"models/distant/{output_name}/vectorizer.pt")
 
     return clf, vectorizer
 
@@ -133,9 +152,9 @@ def train_xgboost(X_train, y_train, output_name="huffpo"):
 
     # save model and label encoder
     # make directory if it doesn't exist
-    os.makedirs(f'models/xgboost/{output_name}', exist_ok=True)
+    os.makedirs(f"models/xgboost/{output_name}", exist_ok=True)
 
-    torch.save(clf, f'models/xgboost/{output_name}/model.pt')
-    torch.save(le, f'models/xgboost/{output_name}/label_encoder.pt')
+    torch.save(clf, f"models/xgboost/{output_name}/model.pt")
+    torch.save(le, f"models/xgboost/{output_name}/label_encoder.pt")
 
     return clf, le
