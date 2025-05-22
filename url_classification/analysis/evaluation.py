@@ -12,6 +12,66 @@ from transformers import DistilBertForSequenceClassification, DistilBertTokenize
 con = duckdb.connect(":memory:")
 
 
+def calculate_per_topic_metrics(y_true, y_pred, label_encoder=None, y_encoded=None):
+    """
+    Calculate per-topic precision, recall, and F1 scores.
+    
+    Args:
+        y_true: True labels (either encoded or original)
+        y_pred: Predicted labels (encoded)
+        label_encoder: Label encoder to get original label names
+        y_encoded: Encoded true labels (if y_true is not encoded)
+    
+    Returns:
+        List of dictionaries containing per-topic metrics
+    """
+    if y_encoded is not None:
+        y_true_encoded = y_encoded
+    elif label_encoder is not None:
+        y_true_encoded = label_encoder.transform(y_true)
+    else:
+        y_true_encoded = y_true
+    
+    # Get unique labels
+    unique_labels = sorted(set(y_true_encoded) | set(y_pred))
+    
+    per_topic_metrics = []
+    
+    for label in unique_labels:
+        # Calculate TP, FP, FN for this label
+        tp = sum((y_true_encoded == label) & (y_pred == label))
+        fp = sum((y_true_encoded != label) & (y_pred == label))
+        fn = sum((y_true_encoded == label) & (y_pred != label))
+        
+        # Calculate precision, recall, F1
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        # Get original label name if label encoder is available
+        if label_encoder is not None:
+            try:
+                original_label = label_encoder.inverse_transform([label])[0]
+            except:
+                original_label = str(label)
+        else:
+            original_label = str(label)
+        
+        per_topic_metrics.append({
+            'label': original_label,
+            'label_encoded': label,
+            'tp': tp,
+            'fp': fp,
+            'fn': fn,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'support': tp + fn  # Number of true instances for this label
+        })
+    
+    return per_topic_metrics
+
+
 def evaluate_bert(dataset, text_variant=None, url_variant=None):
     data = con.execute(f"SELECT * FROM 'data/processed/{dataset}_test.csv' ").fetch_df()
     if text_variant is not None:
@@ -78,7 +138,12 @@ def evaluate_bert(dataset, text_variant=None, url_variant=None):
     recall = recall_score(data["y_encoded"], data["y_pred"], average="macro")
     f1 = f1_score(data["y_encoded"], data["y_pred"], average="macro")
 
-    return {
+    # Calculate per-topic metrics
+    per_topic_metrics = calculate_per_topic_metrics(
+        data["y"], data["y_pred"], label_encoder=label_encoder, y_encoded=data["y_encoded"]
+    )
+
+    result = {
         "model": "bert",
         "dataset": dataset,
         "text_variant": text_variant,
@@ -88,7 +153,10 @@ def evaluate_bert(dataset, text_variant=None, url_variant=None):
         "recall": recall,
         "f1": f1,
         "throughput": throughput,
+        "per_topic_metrics": per_topic_metrics,
     }
+    
+    return result
 
 
 def evaluate_distant_labeling(dataset):
@@ -136,6 +204,11 @@ def evaluate_distant_labeling(dataset):
     recall = recall_score(labeled["y"], labeled["y_pred"], average="macro")
     f1 = f1_score(labeled["y"], labeled["y_pred"], average="macro")
 
+    # Calculate per-topic metrics
+    per_topic_metrics = calculate_per_topic_metrics(
+        labeled["y"], labeled["y_pred"]
+    )
+
     return {
         "model": "distant_labeling",
         "dataset": dataset,
@@ -146,6 +219,7 @@ def evaluate_distant_labeling(dataset):
         "recall": recall,
         "f1": f1,
         "throughput": throughput,
+        "per_topic_metrics": per_topic_metrics,
     }
 
 
@@ -172,6 +246,11 @@ def evaluate_xgboost(dataset):
     recall = recall_score(data["y_encoded"], data["y_pred"], average="macro")
     f1 = f1_score(data["y_encoded"], data["y_pred"], average="macro")
 
+    # Calculate per-topic metrics
+    per_topic_metrics = calculate_per_topic_metrics(
+        data["y"], data["y_pred"], label_encoder=label_encoder, y_encoded=data["y_encoded"]
+    )
+
     return {
         "model": "xgboost",
         "dataset": dataset,
@@ -182,6 +261,7 @@ def evaluate_xgboost(dataset):
         "recall": recall,
         "f1": f1,
         "throughput": throughput,
+        "per_topic_metrics": per_topic_metrics,
     }
 
 
@@ -215,4 +295,22 @@ if __name__ == "__main__":
     # save to csv
     pd.DataFrame(evaluation_metrics).to_csv(
         "./data/processed/evaluation_metrics_with_variants_throughput.csv", index=False
+    )
+
+    # Save per-topic metrics to a separate file
+    per_topic_results = []
+    for result in evaluation_metrics:
+        base_info = {
+            "model": result["model"],
+            "dataset": result["dataset"],
+            "text_variant": result.get("text_variant"),
+            "url_variant": result.get("url_variant"),
+        }
+        
+        for topic_metric in result["per_topic_metrics"]:
+            row = {**base_info, **topic_metric}
+            per_topic_results.append(row)
+    
+    pd.DataFrame(per_topic_results).to_csv(
+        "./data/processed/per_topic_metrics_detailed.csv", index=False
     )
