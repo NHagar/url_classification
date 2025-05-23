@@ -331,9 +331,7 @@ class UnifiedModelEvaluator:
         predictions = []
 
         with torch.no_grad():
-            for batch in tqdm(
-                dataloader, desc=f"Evaluating {model_type} on {feature_name}"
-            ):
+            for batch in tqdm(dataloader):
                 input_ids, attention_mask = batch
                 input_ids = input_ids.to(device)
                 attention_mask = attention_mask.to(device)

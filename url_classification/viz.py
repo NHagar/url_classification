@@ -4,6 +4,8 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.patches import Rectangle
 
+from url_classification.train_and_evaluate import TEXT_FEATURES_CONFIG
+
 
 def create_comprehensive_visualizations(
     results_path="data/processed/unified_evaluation_results.csv",
@@ -231,8 +233,6 @@ def create_comprehensive_visualizations(
 
 def create_feature_availability_matrix():
     """Create a matrix showing which features are available for which datasets"""
-    from url_classification.model_training.unified_system import TEXT_FEATURES_CONFIG
-
     datasets = ["huffpo", "uci", "recognasumm"]
     features = list(TEXT_FEATURES_CONFIG.keys())
 
@@ -251,7 +251,7 @@ def create_feature_availability_matrix():
     # Create custom colormap (white for unavailable, green for available)
     cmap = plt.cm.colors.ListedColormap(["white", "#2ECC71"])
 
-    im = ax.imshow(availability, cmap=cmap, aspect="auto")
+    ax.imshow(availability, cmap=cmap, aspect="auto")
 
     # Set ticks and labels
     ax.set_xticks(np.arange(len(features)))
@@ -262,7 +262,7 @@ def create_feature_availability_matrix():
     # Add text annotations
     for i in range(len(datasets)):
         for j in range(len(features)):
-            text = ax.text(
+            ax.text(
                 j,
                 i,
                 "✓" if availability[i][j] else "✗",
