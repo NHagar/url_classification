@@ -14,7 +14,13 @@ from sentence_transformers import SentenceTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC
@@ -408,8 +414,45 @@ class UnifiedModelEvaluator:
     def _calculate_metrics(
         self, y_true, y_pred, n_samples, time_taken, label_encoder
     ) -> Dict:
-        """Calculate evaluation metrics"""
-        return {
+        """Calculate evaluation metrics including per-topic metrics"""
+        # Get unique labels
+        unique_labels = np.unique(y_true)
+        label_names = label_encoder.inverse_transform(unique_labels)
+
+        # Calculate per-topic metrics
+        per_topic_metrics = {}
+        cm = confusion_matrix(y_true, y_pred, labels=unique_labels)
+
+        for i, label_idx in enumerate(unique_labels):
+            label_name = label_names[i]
+
+            # Calculate TP, FP, FN for this label
+            tp = cm[i, i]
+            fp = cm[:, i].sum() - tp
+            fn = cm[i, :].sum() - tp
+            support = cm[i, :].sum()
+
+            # Calculate metrics for this label
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = (
+                2 * (precision * recall) / (precision + recall)
+                if (precision + recall) > 0
+                else 0.0
+            )
+
+            per_topic_metrics[label_name] = {
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+                "support": support,
+                "tp": tp,
+                "fp": fp,
+                "fn": fn,
+            }
+
+        # Calculate macro averages
+        macro_metrics = {
             "accuracy": accuracy_score(y_true, y_pred),
             "precision": precision_score(
                 y_true, y_pred, average="macro", zero_division=0
@@ -419,6 +462,9 @@ class UnifiedModelEvaluator:
             "throughput": n_samples / time_taken,
             "n_samples": n_samples,
         }
+
+        # Combine macro and per-topic metrics
+        return {**macro_metrics, "per_topic": per_topic_metrics}
 
     def _get_device(self):
         """Get the appropriate device for PyTorch"""
@@ -452,6 +498,7 @@ def main():
     args = parser.parse_args()
 
     results = []
+    per_topic_results = []
 
     for dataset in args.datasets:
         print(f"\n{'=' * 50}")
@@ -504,7 +551,23 @@ def main():
                             model_type, feature_name, test
                         )
                         if metrics:
+                            # Extract per-topic metrics
+                            per_topic = metrics.pop("per_topic", {})
+
+                            # Add macro metrics to results
                             results.append(metrics)
+
+                            # Add per-topic metrics to separate results
+                            for topic, topic_metrics in per_topic.items():
+                                per_topic_result = {
+                                    "dataset": metrics["dataset"],
+                                    "model": metrics["model"],
+                                    "feature": metrics["feature"],
+                                    "topic": topic,
+                                    **topic_metrics,
+                                }
+                                per_topic_results.append(per_topic_result)
+
                             print(f"  ✓ Evaluation completed - F1: {metrics['f1']:.3f}")
                         else:
                             print("  ✗ Model not found for evaluation")
@@ -513,10 +576,21 @@ def main():
 
     # Save results
     if results and args.mode in ["evaluate", "both"]:
+        # Save macro results
         results_df = pd.DataFrame(results)
         results_df.to_csv("data/processed/unified_evaluation_results.csv", index=False)
         print(f"\n{'=' * 50}")
-        print("Results saved to data/processed/unified_evaluation_results.csv")
+        print("Macro results saved to data/processed/unified_evaluation_results.csv")
+
+        # Save per-topic results
+        if per_topic_results:
+            per_topic_df = pd.DataFrame(per_topic_results)
+            per_topic_df.to_csv(
+                "data/processed/per_topic_evaluation_results.csv", index=False
+            )
+            print(
+                "Per-topic results saved to data/processed/per_topic_evaluation_results.csv"
+            )
 
         # Print summary
         print("\nTop 10 model-feature combinations by F1 score:")
@@ -524,6 +598,22 @@ def main():
             ["dataset", "model", "feature", "f1", "accuracy"]
         ]
         print(top_results.to_string(index=False))
+
+        # Print per-topic summary for each dataset
+        if per_topic_results:
+            print("\nPer-topic F1 scores by dataset:")
+            for dataset in args.datasets:
+                dataset_topics = per_topic_df[per_topic_df["dataset"] == dataset]
+                if not dataset_topics.empty:
+                    print(f"\n{dataset.upper()}:")
+                    # Get best performing model-feature combo for each topic
+                    best_per_topic = dataset_topics.loc[
+                        dataset_topics.groupby("topic")["f1"].idxmax()
+                    ]
+                    for _, row in best_per_topic.iterrows():
+                        print(
+                            f"  {row['topic']}: F1={row['f1']:.3f} (model={row['model']}, feature={row['feature']}, support={row['support']})"
+                        )
 
 
 if __name__ == "__main__":
