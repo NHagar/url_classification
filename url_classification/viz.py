@@ -1,3 +1,4 @@
+import matplotlib.colors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -70,7 +71,8 @@ def create_comprehensive_visualizations(
 
     # Add value labels on bars
     for container in ax.containers:
-        ax.bar_label(container, fmt="%.3f", padding=3)
+        if hasattr(container, "datavalues"):  # Check if it's a BarContainer
+            ax.bar_label(container, fmt="%.3f", padding=3)  # type: ignore
 
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
@@ -247,9 +249,8 @@ def create_feature_availability_matrix():
 
     # Create heatmap
     fig, ax = plt.subplots(figsize=(10, 4))
-
     # Create custom colormap (white for unavailable, green for available)
-    cmap = plt.cm.colors.ListedColormap(["white", "#2ECC71"])
+    cmap = matplotlib.colors.ListedColormap(["white", "#2ECC71"])
 
     ax.imshow(availability, cmap=cmap, aspect="auto")
 

@@ -145,11 +145,11 @@ class UnifiedModelTrainer:
 
         # Create datasets
         train_dataset = Dataset.from_dict(
-            {"text": X_train.tolist(), "label": y_train_encoded.tolist()},
+            {"text": list(X_train), "label": y_train_encoded.tolist()},  # type: ignore
             features=Features({"text": Value("string"), "label": Value("int64")}),
         )
         val_dataset = Dataset.from_dict(
-            {"text": X_val.tolist(), "label": y_val_encoded.tolist()},
+            {"text": list(X_val), "label": y_val_encoded.tolist()},  # type: ignore
             features=Features({"text": Value("string"), "label": Value("int64")}),
         )
 
@@ -166,11 +166,11 @@ class UnifiedModelTrainer:
 
         # Move to appropriate device
         device = self._get_device()
-        model.to(device)
+        model.to(device)  # type: ignore
 
         # Training arguments
         training_args = TrainingArguments(
-            output_dir="./results",
+            "./results",
             num_train_epochs=3,
             per_device_train_batch_size=16,
             per_device_eval_batch_size=64,
@@ -248,7 +248,7 @@ class UnifiedModelTrainer:
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 
-        model.fit(X_train_vec, y_train_encoded)
+        model.fit(X_train_vec, y_train_encoded)  # type: ignore
 
         # Save model
         output_dir = f"models/{model_type}/{self.dataset_name}_{feature_name}"
@@ -265,7 +265,7 @@ class UnifiedModelTrainer:
 
         return model, vectorizer if not use_embeddings else None, le
 
-    def _get_device(self):
+    def _get_device(self) -> torch.device:
         """Get the appropriate device for PyTorch"""
         if torch.cuda.is_available():
             return torch.device("cuda")
@@ -322,7 +322,7 @@ class UnifiedModelEvaluator:
 
         # Move to device
         device = self._get_device()
-        model.to(device)
+        model.to(device)  # type: ignore
 
         # Tokenize
         texts = X_test.tolist()
@@ -591,6 +591,9 @@ def main():
             print(
                 "Per-topic results saved to data/processed/per_topic_evaluation_results.csv"
             )
+        else:
+            print("No per-topic results to save.")
+            per_topic_df = pd.DataFrame()
 
         # Print summary
         print("\nTop 10 model-feature combinations by F1 score:")
