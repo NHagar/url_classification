@@ -1,0 +1,136 @@
+models:
+  distilbert:
+    type: deep
+    params:
+      epochs: 3
+      batch_size: 16
+      eval_batch_size: 64
+      warmup_steps: 500
+      weight_decay: 0.01
+    model_names:
+      default: distilbert-base-uncased
+      recognasumm: distilbert-base-multilingual-cased
+  log-reg:
+    type: traditional
+    vectorizer: tfidf
+    vectorizer_params:
+      max_features: 5000
+    model_class: LogisticRegression
+    model_params:
+      max_iter: 1000
+      random_state: 42
+      solver: lbfgs
+  svm:
+    type: traditional
+    vectorizer: tfidf
+    vectorizer_params:
+      max_features: 5000
+    model_class: SVC
+    model_params:
+      kernel: linear
+      random_state: 42
+      probability: true
+  tree-ensemble:
+    type: traditional
+    vectorizer: tfidf
+    vectorizer_params:
+      max_features: 5000
+    model_class: RandomForestClassifier
+    model_params:
+      n_estimators: 100
+      random_state: 42
+      n_jobs: -1
+  distant-labeling:
+    type: traditional
+    vectorizer: tfidf
+    vectorizer_params:
+      max_features: 10000
+    model_class: MultinomialNB
+    model_params:
+      alpha: 1.0
+  xgboost:
+    type: traditional
+    vectorizer: embeddings
+    vectorizer_params: {}
+    embedding_model: Alibaba-NLP/gte-Qwen2-1.5B-instruct
+    model_class: XGBClassifier
+    model_params:
+      random_state: 42
+      n_estimators: 100
+      learning_rate: 0.1
+      max_depth: 6
+  gradient-boosting:
+    type: traditional
+    vectorizer: tfidf
+    vectorizer_params:
+      max_features: 5000
+    model_class: GradientBoostingClassifier
+    model_params:
+      n_estimators: 100
+      learning_rate: 0.1
+      random_state: 42
+features:
+  title_subtitle:
+    description: Concatenated title and subtitle
+    extractors:
+      huffpo: 'lambda df: df[''headline''] + '' '' + df[''short_description'']'
+      uci: 'lambda df: df[''TITLE'']'
+      recognasumm: 'lambda df: df[''Titulo''] + '' '' + df[''Subtitulo'']'
+  title:
+    description: Title/headline only
+    extractors:
+      huffpo: 'lambda df: df[''headline'']'
+      uci: 'lambda df: df[''TITLE'']'
+      recognasumm: 'lambda df: df[''Titulo'']'
+  snippet_description:
+    description: Short description or summary
+    extractors:
+      huffpo: 'lambda df: df[''short_description'']'
+      uci: null
+      recognasumm: 'lambda df: df[''Sumario'']'
+  url_heading_subhead:
+    description: URL concatenated with heading and subheading
+    extractors:
+      huffpo: 'lambda df: df[''link''] + '' '' + df[''headline''] + '' '' + df[''short_description'']'
+      uci: 'lambda df: df[''URL''] + '' '' + df[''TITLE'']'
+      recognasumm: 'lambda df: df[''URL''] + '' '' + df[''Titulo''] + '' '' + df[''Subtitulo'']'
+  url_raw:
+    description: Raw URL as-is
+    extractors:
+      huffpo: 'lambda df: df[''link'']'
+      uci: 'lambda df: df[''URL'']'
+      recognasumm: 'lambda df: df[''URL'']'
+  url_path_raw:
+    description: URL path component
+    extractors:
+      huffpo: 'lambda df: df[''x_path'']'
+      uci: 'lambda df: df[''x_path'']'
+      recognasumm: 'lambda df: df[''x_path'']'
+  url_path_cleaned:
+    description: Cleaned URL path with special chars removed
+    extractors:
+      huffpo: 'lambda df: df[''x'']'
+      uci: 'lambda df: df[''x'']'
+      recognasumm: 'lambda df: df[''x'']'
+datasets:
+  huffpo:
+    name: HuffPost News
+    language: en
+    min_category_percentage: 0.02
+    test_size: 0.2
+    val_size: 0.5
+    random_seed: 20240823
+  uci:
+    name: UCI News Dataset
+    language: en
+    min_category_percentage: null
+    test_size: 0.2
+    val_size: 0.5
+    random_seed: 20240823
+  recognasumm:
+    name: RecognaSumm Portuguese News
+    language: pt
+    min_category_percentage: 0.02
+    test_size: 0.2
+    val_size: 0.5
+    random_seed: 20240823

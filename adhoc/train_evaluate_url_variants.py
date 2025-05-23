@@ -12,7 +12,7 @@ import time
 import pandas as pd
 
 from url_classification.analysis.evaluation import evaluate_bert
-from url_classification.datasets import load_data, make_splits
+from url_classification.dataset_loading import load_data, make_splits
 from url_classification.model_training.models import train_bert_clf
 
 # Define URL variants to use

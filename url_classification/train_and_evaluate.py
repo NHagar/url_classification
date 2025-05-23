@@ -33,7 +33,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from url_classification.datasets import load_data, make_splits
+from url_classification.dataset_loading import load_data, make_splits
 
 warnings.filterwarnings("ignore")
 
