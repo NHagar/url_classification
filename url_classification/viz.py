@@ -21,7 +21,11 @@ def create_comprehensive_visualizations(
     sns.set_palette("husl")
 
     # 1. Heatmap of F1 scores across models and features for each dataset
-    fig, axes = plt.subplots(1, 3, figsize=(20, 6))
+    num_datasets = len(df["dataset"].unique())
+    num_cols = 3  # Number of columns in the subplot grid
+    num_rows = (num_datasets + num_cols - 1) // num_cols  # Calculate rows needed
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(20, 6))
+    axes = axes.flatten()  # Flatten in case of multiple rows
 
     for idx, dataset in enumerate(df["dataset"].unique()):
         ax = axes[idx]
