@@ -285,7 +285,7 @@ class UnifiedModelEvaluator:
 
     def evaluate_model(
         self, model_type: str, feature_name: str, test_df: pd.DataFrame
-    ) -> Dict:
+    ) -> Optional[Dict]:
         """Evaluate a single model on a single feature"""
         # Prepare features
         trainer = UnifiedModelTrainer(self.dataset_name)
@@ -302,7 +302,7 @@ class UnifiedModelEvaluator:
         else:
             return self._evaluate_traditional(X_test, y_test, model_type, feature_name)
 
-    def _evaluate_distilbert(self, X_test, y_test, feature_name: str) -> Dict:
+    def _evaluate_distilbert(self, X_test, y_test, feature_name: str) -> Optional[Dict]:
         """Evaluate DistilBERT model"""
         model_path = f"models/distilbert/{self.dataset_name}_{feature_name}"
 
@@ -360,7 +360,7 @@ class UnifiedModelEvaluator:
 
     def _evaluate_traditional(
         self, X_test, y_test, model_type: str, feature_name: str
-    ) -> Dict:
+    ) -> Optional[Dict]:
         """Evaluate traditional ML models"""
         model_path = f"models/{model_type}/{self.dataset_name}_{feature_name}"
 
