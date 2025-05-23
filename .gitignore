@@ -9,3 +9,4 @@ pyrightconfig.json
 pull_results.sh
 upload_mapping.sh
 test.py
+test.ipynb
