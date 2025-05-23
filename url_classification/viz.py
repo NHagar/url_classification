@@ -5,7 +5,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.patches import Rectangle
 
-from url_classification.train_and_evaluate import TEXT_FEATURES_CONFIG
+from url_classification.model_config import FEATURE_EXTRACTORS
 
 
 def create_comprehensive_visualizations(
@@ -236,15 +236,16 @@ def create_comprehensive_visualizations(
 def create_feature_availability_matrix():
     """Create a matrix showing which features are available for which datasets"""
     datasets = ["huffpo", "uci", "recognasumm"]
-    features = list(TEXT_FEATURES_CONFIG.keys())
+    features = list(FEATURE_EXTRACTORS.keys())
 
     # Create availability matrix
     availability = []
     for dataset in datasets:
         row = []
         for feature in features:
-            func = TEXT_FEATURES_CONFIG[feature].get(dataset)
-            row.append(1 if func is not None and func.__name__ != "<lambda>" else 0)
+            extractors = FEATURE_EXTRACTORS[feature]["extractors"]
+            extractor = extractors.get(dataset)
+            row.append(1 if extractor is not None else 0)
         availability.append(row)
 
     # Create heatmap

@@ -8,12 +8,9 @@ import duckdb
 import numpy as np
 import pandas as pd
 import torch
-import xgboost as xgb
 from datasets import Dataset, Features, Value
 from sentence_transformers import SentenceTransformer
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -21,9 +18,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from sklearn.naive_bayes import MultinomialNB
 from sklearn.preprocessing import LabelEncoder
-from sklearn.svm import SVC
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 from transformers import (
@@ -34,59 +29,33 @@ from transformers import (
 )
 
 from url_classification.dataset_loading import load_data, make_splits
+from url_classification.model_config import (
+    FEATURE_EXTRACTORS,
+    MODEL_CONFIGS,
+    get_model_instance,
+    load_configs,
+)
 
 warnings.filterwarnings("ignore")
 
-# Configuration for text features mapping
-TEXT_FEATURES_CONFIG = {
-    "title_subtitle": {
-        "huffpo": lambda df: df["headline"] + " " + df["short_description"],
-        "uci": lambda df: df["TITLE"],  # No subtitle available
-        "recognasumm": lambda df: df["Titulo"] + " " + df["Subtitulo"],
-    },
-    "title": {
-        "huffpo": lambda df: df["headline"],
-        "uci": lambda df: df["TITLE"],
-        "recognasumm": lambda df: df["Titulo"],
-    },
-    "snippet_description": {
-        "huffpo": lambda df: df["short_description"],
-        "uci": lambda df: None,  # Not available
-        "recognasumm": lambda df: df["Sumario"],
-    },
-    "url_heading_subhead": {
-        "huffpo": lambda df: df["link"]
-        + " "
-        + df["headline"]
-        + " "
-        + df["short_description"],
-        "uci": lambda df: df["URL"] + " " + df["TITLE"],
-        "recognasumm": lambda df: df["URL"]
-        + " "
-        + df["Titulo"]
-        + " "
-        + df["Subtitulo"],
-    },
-    "url_raw": {
-        "huffpo": lambda df: df["link"],
-        "uci": lambda df: df["URL"],
-        "recognasumm": lambda df: df["URL"],
-    },
-    "url_path_raw": {
-        "huffpo": lambda df: df["x_path"],
-        "uci": lambda df: df["x_path"],
-        "recognasumm": lambda df: df["x_path"],
-    },
-    "url_path_cleaned": {
-        "huffpo": lambda df: df["x"],
-        "uci": lambda df: df["x"],
-        "recognasumm": lambda df: df["x"],
-    },
-}
+# Load configurations - try to load from file first, fallback to hardcoded
+try:
+    configs = load_configs()
+    MODEL_CONFIGS_LOADED = configs["models"]
+    FEATURE_EXTRACTORS_LOADED = configs["features"]
+except (FileNotFoundError, KeyError):
+    MODEL_CONFIGS_LOADED = MODEL_CONFIGS
+    FEATURE_EXTRACTORS_LOADED = FEATURE_EXTRACTORS
 
-# Model configurations
-TRADITIONAL_MODELS = ["log-reg", "svm", "tree-ensemble", "distant-labeling", "xgboost"]
-DEEP_MODELS = ["distilbert"]
+# Extract model lists from configurations
+TRADITIONAL_MODELS = [
+    name
+    for name, config in MODEL_CONFIGS_LOADED.items()
+    if config["type"] == "traditional"
+]
+DEEP_MODELS = [
+    name for name, config in MODEL_CONFIGS_LOADED.items() if config["type"] == "deep"
+]
 ALL_MODELS = TRADITIONAL_MODELS + DEEP_MODELS
 
 
@@ -101,17 +70,24 @@ class UnifiedModelTrainer:
     def load_embedder(self):
         """Lazy load the embedder when needed"""
         if self.embedder is None:
-            self.embedder = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct")
+            # Get embedding model from XGBoost configuration
+            xgb_config = MODEL_CONFIGS_LOADED.get("xgboost", {})
+            embedding_model = xgb_config.get(
+                "embedding_model", "Alibaba-NLP/gte-Qwen2-1.5B-instruct"
+            )
+            self.embedder = SentenceTransformer(embedding_model)
         return self.embedder
 
     def prepare_features(
         self, df: pd.DataFrame, feature_name: str
     ) -> Optional[pd.Series]:
         """Extract the specified text feature from dataframe"""
-        if feature_name not in TEXT_FEATURES_CONFIG:
+        if feature_name not in FEATURE_EXTRACTORS_LOADED:
             raise ValueError(f"Unknown feature: {feature_name}")
 
-        feature_func = TEXT_FEATURES_CONFIG[feature_name].get(self.dataset_name)
+        feature_config = FEATURE_EXTRACTORS_LOADED[feature_name]
+        feature_func = feature_config["extractors"].get(self.dataset_name)
+
         if feature_func is None:
             return None
 
@@ -128,11 +104,15 @@ class UnifiedModelTrainer:
         """Train DistilBERT model"""
         le = LabelEncoder()
 
+        # Get model configuration
+        model_config = MODEL_CONFIGS_LOADED["distilbert"]
+
         # Select appropriate model based on dataset
-        if self.dataset_name == "recognasumm":
-            model_name = "distilbert-base-multilingual-cased"
+        model_names = model_config["model_names"]
+        if self.dataset_name in model_names:
+            model_name = model_names[self.dataset_name]
         else:
-            model_name = "distilbert-base-uncased"
+            model_name = model_names["default"]
 
         tokenizer = DistilBertTokenizerFast.from_pretrained(model_name)
         model = DistilBertForSequenceClassification.from_pretrained(
@@ -168,14 +148,15 @@ class UnifiedModelTrainer:
         device = self._get_device()
         model.to(device)  # type: ignore
 
-        # Training arguments
+        # Training arguments from configuration
+        params = model_config["params"]
         training_args = TrainingArguments(
-            "./results",
-            num_train_epochs=3,
-            per_device_train_batch_size=16,
-            per_device_eval_batch_size=64,
-            warmup_steps=500,
-            weight_decay=0.01,
+            output_dir="./results",
+            num_train_epochs=params["epochs"],
+            per_device_train_batch_size=params["batch_size"],
+            per_device_eval_batch_size=params["eval_batch_size"],
+            warmup_steps=params["warmup_steps"],
+            weight_decay=params["weight_decay"],
             logging_dir="./logs",
             save_strategy="no",
             report_to="none",
@@ -203,18 +184,18 @@ class UnifiedModelTrainer:
         self, X_train, y_train, model_type: str, feature_name: str
     ):
         """Train traditional ML models"""
-        # Create appropriate vectorizer
-        if model_type == "distant-labeling":
-            vectorizer = TfidfVectorizer(max_features=10000)
-        else:
-            vectorizer = TfidfVectorizer(max_features=5000)
+        # Get model configuration
+        if model_type not in MODEL_CONFIGS_LOADED:
+            raise ValueError(f"Unknown model type: {model_type}")
 
-        # For XGBoost with certain features, we might want to use embeddings
-        use_embeddings = model_type == "xgboost" and feature_name not in [
-            "url_raw",
-            "url_path_raw",
-            "url_path_cleaned",
-        ]
+        model_config = MODEL_CONFIGS_LOADED[model_type]
+
+        # Create appropriate vectorizer based on configuration
+        vectorizer_type = model_config.get("vectorizer", "tfidf")
+        vectorizer_params = model_config.get("vectorizer_params", {})
+
+        use_embeddings = vectorizer_type == "embeddings"
+        vectorizer = None  # Initialize vectorizer variable
 
         if use_embeddings:
             embedder = self.load_embedder()
@@ -227,6 +208,8 @@ class UnifiedModelTrainer:
             )
             y_train_final = y_train_filtered
         else:
+            # Create TF-IDF vectorizer with configured parameters
+            vectorizer = TfidfVectorizer(**vectorizer_params)
             X_train_vec = vectorizer.fit_transform(X_train)
             y_train_final = y_train
 
@@ -234,20 +217,8 @@ class UnifiedModelTrainer:
         le = LabelEncoder()
         y_train_encoded = le.fit_transform(y_train_final)
 
-        # Select and train model
-        if model_type == "log-reg":
-            model = LogisticRegression(max_iter=1000, random_state=42)
-        elif model_type == "svm":
-            model = SVC(kernel="linear", random_state=42)
-        elif model_type == "tree-ensemble":
-            model = RandomForestClassifier(n_estimators=100, random_state=42)
-        elif model_type == "distant-labeling":
-            model = MultinomialNB()
-        elif model_type == "xgboost":
-            model = xgb.XGBClassifier(random_state=42)
-        else:
-            raise ValueError(f"Unknown model type: {model_type}")
-
+        # Create model instance using configuration
+        model = get_model_instance(model_config)
         model.fit(X_train_vec, y_train_encoded)  # type: ignore
 
         # Save model
@@ -286,7 +257,12 @@ class UnifiedModelEvaluator:
     def load_embedder(self):
         """Lazy load the embedder when needed"""
         if self.embedder is None:
-            self.embedder = SentenceTransformer("Alibaba-NLP/gte-Qwen2-1.5B-instruct")
+            # Get embedding model from XGBoost configuration
+            xgb_config = MODEL_CONFIGS_LOADED.get("xgboost", {})
+            embedding_model = xgb_config.get(
+                "embedding_model", "Alibaba-NLP/gte-Qwen2-1.5B-instruct"
+            )
+            self.embedder = SentenceTransformer(embedding_model)
         return self.embedder
 
     def evaluate_model(
@@ -315,6 +291,10 @@ class UnifiedModelEvaluator:
         if not os.path.exists(model_path):
             return None
 
+        # Get model configuration
+        model_config = MODEL_CONFIGS_LOADED.get("distilbert", {})
+        batch_size = model_config.get("params", {}).get("eval_batch_size", 64)
+
         # Load model and tokenizer
         tokenizer = DistilBertTokenizerFast.from_pretrained(model_path)
         model = DistilBertForSequenceClassification.from_pretrained(model_path)
@@ -330,7 +310,7 @@ class UnifiedModelEvaluator:
 
         encodings = tokenizer(texts, truncation=True, padding=True, return_tensors="pt")
         ds = TensorDataset(encodings["input_ids"], encodings["attention_mask"])
-        dataloader = DataLoader(ds, batch_size=64)
+        dataloader = DataLoader(ds, batch_size=batch_size)
 
         # Predict
         model.eval()
@@ -378,12 +358,16 @@ class UnifiedModelEvaluator:
         label_encoder = torch.load(f"{model_path}/label_encoder.pt")
         vectorizer_type = torch.load(f"{model_path}/vectorizer_type.pt")
 
+        # Get model configuration for any additional parameters
+        model_config = MODEL_CONFIGS_LOADED.get(model_type, {})
+
         start_time = time.perf_counter()
 
         if vectorizer_type == "embeddings":
             embedder = self.load_embedder()
-            # Filter long texts
-            mask = X_test.str.len() < 2500
+            # Filter long texts based on max length
+            max_length = model_config.get("max_text_length", 2500)
+            mask = X_test.str.len() < max_length
             X_test_filtered = X_test[mask]
             y_test_filtered = y_test[mask]
             X_test_vec = embedder.encode(
@@ -492,10 +476,20 @@ def main():
     )
     parser.add_argument("--models", nargs="+", default=ALL_MODELS)
     parser.add_argument(
-        "--features", nargs="+", default=list(TEXT_FEATURES_CONFIG.keys())
+        "--features", nargs="+", default=list(FEATURE_EXTRACTORS_LOADED.keys())
     )
 
     args = parser.parse_args()
+
+    # Print configuration summary
+    print(f"\n{'=' * 50}")
+    print("Configuration Summary")
+    print(f"{'=' * 50}")
+    print(f"Models: {len(args.models)} - {', '.join(args.models)}")
+    print(f"Features: {len(args.features)} - {', '.join(args.features)}")
+    print(f"Datasets: {len(args.datasets)} - {', '.join(args.datasets)}")
+    print(f"Mode: {args.mode}")
+    print(f"{'=' * 50}\n")
 
     results = []
     per_topic_results = []
