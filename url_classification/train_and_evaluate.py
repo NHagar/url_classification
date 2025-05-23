@@ -463,7 +463,7 @@ class UnifiedModelEvaluator:
 def load_dataset_with_features(dataset_name: str):
     """Load dataset with all necessary preprocessing"""
     df, _ = load_data(dataset_name)
-    train, val, test = make_splits(df)
+    train, val, test = make_splits(df, dataset_name)
 
     return train, val, test
 
