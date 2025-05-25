@@ -51,6 +51,7 @@ dependencies = [
     "networkx==3.3",
     "numpy==1.26.4",
     "ollama==0.3.1",
+    "openai>=1.82.0",
     "packaging==24.1",
     "pandas==2.2.2",
     "parso==0.8.4",

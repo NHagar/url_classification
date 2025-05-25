@@ -2,13 +2,14 @@ import argparse
 import os
 import time
 import warnings
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import duckdb
 import numpy as np
 import pandas as pd
 import torch
 from datasets import Dataset, Features, Value
+from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import (
@@ -56,7 +57,10 @@ TRADITIONAL_MODELS = [
 DEEP_MODELS = [
     name for name, config in MODEL_CONFIGS_LOADED.items() if config["type"] == "deep"
 ]
-ALL_MODELS = TRADITIONAL_MODELS + DEEP_MODELS
+LLM_MODELS = [
+    name for name, config in MODEL_CONFIGS_LOADED.items() if config["type"] == "llm"
+]
+ALL_MODELS = TRADITIONAL_MODELS + DEEP_MODELS + LLM_MODELS
 
 
 class UnifiedModelTrainer:
@@ -236,6 +240,27 @@ class UnifiedModelTrainer:
 
         return model, vectorizer if not use_embeddings else None, le
 
+    def train_llm_model(self, X_train, y_train, model_type: str, feature_name: str):
+        """Prepare LLM model (no actual training needed)"""
+        # For LLM models, we just need to prepare the label encoder and save it
+        # The model itself is already trained and served via LMStudio
+
+        # Create label encoder
+        le = LabelEncoder()
+        le.fit(y_train)
+
+        # Save label encoder for later use
+        output_dir = f"models/{model_type}/{self.dataset_name}_{feature_name}"
+        os.makedirs(output_dir, exist_ok=True)
+        torch.save(le, f"{output_dir}/label_encoder.pt")
+
+        # Save the unique categories for prompt generation
+        categories = list(le.classes_)
+        torch.save(categories, f"{output_dir}/categories.pt")
+
+        print(f"  ✓ LLM setup completed - Categories: {categories}")
+        return None, None, le
+
     def _get_device(self) -> torch.device:
         """Get the appropriate device for PyTorch"""
         if torch.cuda.is_available():
@@ -281,8 +306,173 @@ class UnifiedModelEvaluator:
         # Load and evaluate model
         if model_type == "distilbert":
             return self._evaluate_distilbert(X_test, y_test, feature_name)
+        elif model_type in LLM_MODELS:
+            return self._evaluate_llm(X_test, y_test, model_type, feature_name)
         else:
             return self._evaluate_traditional(X_test, y_test, model_type, feature_name)
+
+    def _evaluate_llm(
+        self, X_test, y_test, model_type: str, feature_name: str
+    ) -> Optional[Dict]:
+        """Evaluate LLM model via OpenAI API to LMStudio"""
+        model_path = f"models/{model_type}/{self.dataset_name}_{feature_name}"
+
+        if not os.path.exists(model_path):
+            return None
+
+        # Get model configuration
+        model_config = MODEL_CONFIGS_LOADED.get(model_type, {})
+        params = model_config.get("params", {})
+        prompt_template = model_config.get("prompt_template", {})
+
+        # Load label encoder and categories
+        label_encoder = torch.load(f"{model_path}/label_encoder.pt")
+        categories = torch.load(f"{model_path}/categories.pt")
+
+        # Initialize OpenAI client for LMStudio
+        client = OpenAI(
+            base_url=params.get("base_url", "http://localhost:1234/v1"),
+            api_key=params.get("api_key", "lm-studio"),
+        )
+
+        # Prepare texts for evaluation
+        max_length = params.get("max_text_length", 4000)
+
+        # Filter texts that are too long
+        mask = X_test.str.len() < max_length
+        texts_filtered = X_test[mask].tolist()
+        y_test_filtered = y_test[mask]
+
+        if len(texts_filtered) == 0:
+            print("  ✗ All texts too long for LLM evaluation")
+            return None
+
+        # Prepare categories string for prompt
+        categories_str = ", ".join(categories)
+
+        # Process in batches
+        batch_size = params.get("batch_size", 10)
+        predictions = []
+
+        start_time = time.perf_counter()
+
+        print(
+            f"  Processing {len(texts_filtered)} samples in batches of {batch_size}..."
+        )
+
+        for i in tqdm(range(0, len(texts_filtered), batch_size)):
+            batch_texts = texts_filtered[i : i + batch_size]
+            batch_predictions = self._process_llm_batch(
+                client, batch_texts, categories_str, categories, prompt_template, params
+            )
+            predictions.extend(batch_predictions)
+
+        end_time = time.perf_counter()
+
+        # Filter out failed predictions (None values)
+        valid_indices = [i for i, pred in enumerate(predictions) if pred is not None]
+        valid_predictions = [predictions[i] for i in valid_indices]
+        valid_y_test = y_test_filtered.iloc[valid_indices]
+
+        if len(valid_predictions) == 0:
+            print("  ✗ No valid predictions from LLM")
+            return None
+
+        print(
+            f"  ✓ Got {len(valid_predictions)}/{len(texts_filtered)} valid predictions"
+        )
+
+        # Calculate metrics
+        y_encoded = label_encoder.transform(valid_y_test)
+        metrics = self._calculate_metrics(
+            y_encoded,
+            valid_predictions,
+            len(valid_predictions),
+            end_time - start_time,
+            label_encoder,
+        )
+
+        metrics.update(
+            {
+                "model": model_type,
+                "dataset": self.dataset_name,
+                "feature": feature_name,
+                "success_rate": len(valid_predictions) / len(texts_filtered),
+            }
+        )
+
+        return metrics
+
+    def _process_llm_batch(
+        self,
+        client: OpenAI,
+        batch_texts: List[str],
+        categories_str: str,
+        categories: List[str],
+        prompt_template: Dict,
+        params: Dict,
+    ) -> List[Optional[int]]:
+        """Process a batch of texts with the LLM"""
+        predictions = []
+
+        for text in batch_texts:
+            try:
+                # Prepare prompt
+                system_prompt = prompt_template.get("system", "")
+                user_prompt = prompt_template.get("user", "").format(
+                    categories=categories_str,
+                    text=text[: params.get("max_text_length", 4000)],
+                )
+
+                # Make API call
+                response = client.chat.completions.create(
+                    model=params.get("model_name", "phi-4"),
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=params.get("temperature", 0.1),
+                    max_tokens=params.get("max_tokens", 50),
+                    timeout=params.get("timeout", 30),
+                )
+
+                # Extract prediction
+                predicted_text = response.choices[0].message.content.strip()  # type: ignore
+
+                # Map prediction to category index
+                prediction_idx = self._map_prediction_to_category(
+                    predicted_text, categories
+                )
+                predictions.append(prediction_idx)
+
+            except Exception as e:
+                print(f"    ✗ LLM API error: {str(e)}")
+                predictions.append(None)
+
+        return predictions
+
+    def _map_prediction_to_category(
+        self, prediction: str, categories: List[str]
+    ) -> Optional[int]:
+        """Map LLM prediction text to category index"""
+        prediction_clean = prediction.lower().strip()
+
+        # Direct match
+        for i, category in enumerate(categories):
+            if prediction_clean == category.lower():
+                return i
+
+        # Partial match
+        for i, category in enumerate(categories):
+            if (
+                category.lower() in prediction_clean
+                or prediction_clean in category.lower()
+            ):
+                return i
+
+        # If no match found, return None
+        print(f"    ✗ Could not map prediction '{prediction}' to any category")
+        return None
 
     def _evaluate_distilbert(self, X_test, y_test, feature_name: str) -> Optional[Dict]:
         """Evaluate DistilBERT model"""
@@ -489,6 +679,9 @@ def main():
     print(f"Features: {len(args.features)} - {', '.join(args.features)}")
     print(f"Datasets: {len(args.datasets)} - {', '.join(args.datasets)}")
     print(f"Mode: {args.mode}")
+    print(f"Traditional: {[m for m in args.models if m in TRADITIONAL_MODELS]}")
+    print(f"Deep Learning: {[m for m in args.models if m in DEEP_MODELS]}")
+    print(f"LLM: {[m for m in args.models if m in LLM_MODELS]}")
     print(f"{'=' * 50}\n")
 
     results = []
@@ -521,21 +714,31 @@ def main():
 
                 # Training
                 if args.mode in ["train", "both"]:
-                    print("  Training...")
-                    try:
-                        if model_type == "distilbert":
-                            X_val = trainer.prepare_features(val, feature_name)
-                            trainer.train_distilbert(
-                                X_train, train["y"], X_val, val["y"], feature_name
-                            )
-                        else:
-                            trainer.train_traditional_model(
+                    if model_type in LLM_MODELS:
+                        print("  Setting up LLM (no training needed)...")
+                        try:
+                            trainer.train_llm_model(
                                 X_train, train["y"], model_type, feature_name
                             )
-                        print("  ✓ Training completed")
-                    except Exception as e:
-                        print(f"  ✗ Training failed: {str(e)}")
-                        continue
+                        except Exception as e:
+                            print(f"  ✗ LLM setup failed: {str(e)}")
+                            continue
+                    else:
+                        print("  Training...")
+                        try:
+                            if model_type == "distilbert":
+                                X_val = trainer.prepare_features(val, feature_name)
+                                trainer.train_distilbert(
+                                    X_train, train["y"], X_val, val["y"], feature_name
+                                )
+                            else:
+                                trainer.train_traditional_model(
+                                    X_train, train["y"], model_type, feature_name
+                                )
+                            print("  ✓ Training completed")
+                        except Exception as e:
+                            print(f"  ✗ Training failed: {str(e)}")
+                            continue
 
                 # Evaluation
                 if args.mode in ["evaluate", "both"]:
@@ -562,7 +765,15 @@ def main():
                                 }
                                 per_topic_results.append(per_topic_result)
 
-                            print(f"  ✓ Evaluation completed - F1: {metrics['f1']:.3f}")
+                            success_info = ""
+                            if "success_rate" in metrics:
+                                success_info = (
+                                    f", Success: {metrics['success_rate']:.1%}"
+                                )
+
+                            print(
+                                f"  ✓ Evaluation completed - F1: {metrics['f1']:.3f}{success_info}"
+                            )
                         else:
                             print("  ✗ Model not found for evaluation")
                     except Exception as e:
