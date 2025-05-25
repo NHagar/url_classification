@@ -28,7 +28,7 @@ def create_comprehensive_visualizations(
 
     # Handle single row case
     if num_rows == 1:
-        axes = axes.reshape(1, -1)
+        pass  # Single row case does not require reshape
     axes = axes.flatten()  # Flatten in case of multiple rows
 
     for idx, dataset in enumerate(df["dataset"].unique()):
