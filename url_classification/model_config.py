@@ -75,6 +75,20 @@ MODEL_CONFIGS = {
         "model_class": "GradientBoostingClassifier",
         "model_params": {"n_estimators": 100, "learning_rate": 0.1, "random_state": 42},
     },
+    "llm-local": {
+        "type": "llm",
+        "params": {
+            "model_name": "phi-4",
+            "base_url": "http://localhost:1234/v1",
+            "api_key": "lm-studio",
+            "temperature": 0,
+            "batch_size": 10,  # Process in smaller batches for LLM
+        },
+        "prompt_template": {
+            "system": "You are a text classifier. Given a text sample, classify it into one of the provided categories. Respond with only the category name, nothing else.",
+            "user": "Categories: {categories}\n\nText to classify: {text}\n\nCategory:",
+        },
+    },
 }
 
 # Feature extraction configurations
