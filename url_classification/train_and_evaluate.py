@@ -104,12 +104,74 @@ class UnifiedModelTrainer:
             return result.fillna("")
         return result
 
-    def train_distilbert(self, X_train, y_train, X_val, y_val, feature_name: str):
+    def train_distilbert(
+        self,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        feature_name: str,
+        model_type: str = "distilbert",
+    ):
         """Train DistilBERT model"""
         le = LabelEncoder()
 
         # Get model configuration
-        model_config = MODEL_CONFIGS_LOADED["distilbert"]
+        model_config = MODEL_CONFIGS_LOADED[model_type]
+
+        # Handle subset sampling for special variants
+        if "subset_size" in model_config:
+            subset_size = model_config["subset_size"]
+            random_seed = model_config.get("random_seed", 42)
+
+            print(
+                f"  Creating reproducible subset of {subset_size} samples (seed={random_seed})"
+            )
+
+            # Ensure we have a pandas DataFrame or Series for sampling
+            if hasattr(X_train, "sample"):
+                # X_train is a pandas Series - we need to sample both X and y together
+                import pandas as pd
+
+                # Create a temporary DataFrame to ensure aligned sampling
+                temp_df = pd.DataFrame({"X": X_train, "y": y_train})
+
+                # Sample with stratification if possible, otherwise random
+                try:
+                    # Try stratified sampling to maintain class distribution
+                    sampled_df = temp_df.groupby("y", group_keys=False).apply(
+                        lambda x: x.sample(
+                            min(
+                                len(x), max(1, int(subset_size * len(x) / len(temp_df)))
+                            ),
+                            random_state=random_seed,
+                        )
+                    )
+                    # If we don't have enough samples, fall back to simple random sampling
+                    if len(sampled_df) < subset_size:
+                        sampled_df = temp_df.sample(
+                            n=min(subset_size, len(temp_df)), random_state=random_seed
+                        )
+                except Exception:
+                    # Fall back to simple random sampling
+                    sampled_df = temp_df.sample(
+                        n=min(subset_size, len(temp_df)), random_state=random_seed
+                    )
+
+                X_train = sampled_df["X"]
+                y_train = sampled_df["y"]
+            else:
+                # X_train is a list or array - convert to pandas for sampling
+                import pandas as pd
+
+                temp_df = pd.DataFrame({"X": X_train, "y": y_train})
+                sampled_df = temp_df.sample(
+                    n=min(subset_size, len(temp_df)), random_state=random_seed
+                )
+                X_train = sampled_df["X"].tolist()
+                y_train = sampled_df["y"].tolist()
+
+            print(f"  Using {len(X_train)} samples for training")
 
         # Select appropriate model based on dataset
         model_names = model_config["model_names"]
@@ -175,8 +237,8 @@ class UnifiedModelTrainer:
 
         trainer.train()
 
-        # Save model
-        output_dir = f"models/distilbert/{self.dataset_name}_{feature_name}"
+        # Save model with model_type in path for subset variants
+        output_dir = f"models/{model_type}/{self.dataset_name}_{feature_name}"
         os.makedirs(output_dir, exist_ok=True)
         model.save_pretrained(output_dir)
         tokenizer.save_pretrained(output_dir)
@@ -304,8 +366,8 @@ class UnifiedModelEvaluator:
         y_test = test_df["y"]
 
         # Load and evaluate model
-        if model_type == "distilbert":
-            return self._evaluate_distilbert(X_test, y_test, feature_name)
+        if model_type in ["distilbert", "distilbert-1k", "distilbert-3k"]:
+            return self._evaluate_distilbert(X_test, y_test, feature_name, model_type)
         elif model_type in LLM_MODELS:
             return self._evaluate_llm(X_test, y_test, model_type, feature_name)
         else:
@@ -474,9 +536,11 @@ class UnifiedModelEvaluator:
         print(f"    ✗ Could not map prediction '{prediction}' to any category")
         return None
 
-    def _evaluate_distilbert(self, X_test, y_test, feature_name: str) -> Optional[Dict]:
+    def _evaluate_distilbert(
+        self, X_test, y_test, feature_name: str, model_type: str = "distilbert"
+    ) -> Optional[Dict]:
         """Evaluate DistilBERT model"""
-        model_path = f"models/distilbert/{self.dataset_name}_{feature_name}"
+        model_path = f"models/{model_type}/{self.dataset_name}_{feature_name}"
 
         if not os.path.exists(model_path):
             return None
@@ -526,7 +590,7 @@ class UnifiedModelEvaluator:
 
         metrics.update(
             {
-                "model": "distilbert",
+                "model": model_type,
                 "dataset": self.dataset_name,
                 "feature": feature_name,
             }
@@ -726,10 +790,19 @@ def main():
                     else:
                         print("  Training...")
                         try:
-                            if model_type == "distilbert":
+                            if model_type in [
+                                "distilbert",
+                                "distilbert-1k",
+                                "distilbert-3k",
+                            ]:
                                 X_val = trainer.prepare_features(val, feature_name)
                                 trainer.train_distilbert(
-                                    X_train, train["y"], X_val, val["y"], feature_name
+                                    X_train,
+                                    train["y"],
+                                    X_val,
+                                    val["y"],
+                                    feature_name,
+                                    model_type,
                                 )
                             else:
                                 trainer.train_traditional_model(

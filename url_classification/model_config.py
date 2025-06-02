@@ -89,6 +89,38 @@ MODEL_CONFIGS = {
             "user": "Categories: {categories}\n\nText to classify: {text}\n\nCategory:",
         },
     },
+    "distilbert-1k": {
+        "type": "deep",
+        "subset_size": 1000,
+        "random_seed": 42,
+        "params": {
+            "epochs": 3,
+            "batch_size": 16,
+            "eval_batch_size": 64,
+            "warmup_steps": 500,
+            "weight_decay": 0.01,
+        },
+        "model_names": {
+            "default": "distilbert-base-uncased",
+            "recognasumm": "distilbert-base-multilingual-cased",
+        },
+    },
+    "distilbert-3k": {
+        "type": "deep",
+        "subset_size": 3000,
+        "random_seed": 42,
+        "params": {
+            "epochs": 3,
+            "batch_size": 16,
+            "eval_batch_size": 64,
+            "warmup_steps": 500,
+            "weight_decay": 0.01,
+        },
+        "model_names": {
+            "default": "distilbert-base-uncased",
+            "recognasumm": "distilbert-base-multilingual-cased",
+        },
+    },
 }
 
 # Feature extraction configurations
