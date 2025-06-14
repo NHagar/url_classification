@@ -356,6 +356,9 @@ class UnifiedModelEvaluator:
         self, model_type: str, feature_name: str, test_df: pd.DataFrame
     ) -> Optional[Dict]:
         """Evaluate a single model on a single feature"""
+        # Store test_df for domain metrics calculation
+        self._current_test_df = test_df
+        
         # Prepare features
         trainer = UnifiedModelTrainer(self.dataset_name)
         X_test = trainer.prepare_features(test_df, feature_name)
@@ -446,12 +449,21 @@ class UnifiedModelEvaluator:
 
         # Calculate metrics
         y_encoded = label_encoder.transform(valid_y_test)
+        
+        # For LLM evaluation with filtering, we need to align test_df with valid predictions
+        test_df_for_metrics = None
+        if self.dataset_name == "uci" and hasattr(self, '_current_test_df'):
+            # Filter test_df to match filtered and valid data
+            filtered_test_df = self._current_test_df[mask].reset_index(drop=True)
+            test_df_for_metrics = filtered_test_df.iloc[valid_indices].reset_index(drop=True)
+        
         metrics = self._calculate_metrics(
             y_encoded,
             valid_predictions,
             len(valid_predictions),
             end_time - start_time,
             label_encoder,
+            test_df_for_metrics,
         )
 
         metrics.update(
@@ -584,8 +596,14 @@ class UnifiedModelEvaluator:
 
         # Calculate metrics
         y_encoded = label_encoder.transform(y_test)
+        
+        # Get test_df for domain metrics if available
+        test_df_for_metrics = None
+        if self.dataset_name == "uci" and hasattr(self, '_current_test_df'):
+            test_df_for_metrics = self._current_test_df
+        
         metrics = self._calculate_metrics(
-            y_encoded, predictions, len(texts), end_time - start_time, label_encoder
+            y_encoded, predictions, len(texts), end_time - start_time, label_encoder, test_df_for_metrics
         )
 
         metrics.update(
@@ -616,6 +634,7 @@ class UnifiedModelEvaluator:
         model_config = MODEL_CONFIGS_LOADED.get(model_type, {})
 
         start_time = time.perf_counter()
+        mask = None  # Initialize mask variable
 
         if vectorizer_type == "embeddings":
             embedder = self.load_embedder()
@@ -639,8 +658,18 @@ class UnifiedModelEvaluator:
 
         # Calculate metrics
         y_encoded = label_encoder.transform(y_test_final)
+        
+        # For UCI dataset with filtering, we need to align test_df with filtered data
+        test_df_for_metrics = None
+        if self.dataset_name == "uci" and hasattr(self, '_current_test_df'):
+            if vectorizer_type == "embeddings" and mask is not None:
+                # Filter test_df to match filtered data
+                test_df_for_metrics = self._current_test_df[mask].reset_index(drop=True)
+            else:
+                test_df_for_metrics = self._current_test_df
+        
         metrics = self._calculate_metrics(
-            y_encoded, y_pred, len(y_test_final), end_time - start_time, label_encoder
+            y_encoded, y_pred, len(y_test_final), end_time - start_time, label_encoder, test_df_for_metrics
         )
 
         metrics.update(
@@ -650,9 +679,9 @@ class UnifiedModelEvaluator:
         return metrics
 
     def _calculate_metrics(
-        self, y_true, y_pred, n_samples, time_taken, label_encoder
+        self, y_true, y_pred, n_samples, time_taken, label_encoder, test_df=None
     ) -> Dict:
-        """Calculate evaluation metrics including per-topic metrics"""
+        """Calculate evaluation metrics including per-topic and domain-level metrics"""
         # Get unique labels
         unique_labels = np.unique(y_true)
         label_names = label_encoder.inverse_transform(unique_labels)
@@ -661,7 +690,7 @@ class UnifiedModelEvaluator:
         per_topic_metrics = {}
         cm = confusion_matrix(y_true, y_pred, labels=unique_labels)
 
-        for i, label_idx in enumerate(unique_labels):
+        for i, _ in enumerate(unique_labels):
             label_name = label_names[i]
 
             # Calculate TP, FP, FN for this label
@@ -701,8 +730,91 @@ class UnifiedModelEvaluator:
             "n_samples": n_samples,
         }
 
-        # Combine macro and per-topic metrics
-        return {**macro_metrics, "per_topic": per_topic_metrics}
+        result = {**macro_metrics, "per_topic": per_topic_metrics}
+        
+        # Add domain-level metrics for UCI dataset
+        if test_df is not None and self.dataset_name == "uci" and "PUBLISHER" in test_df.columns:
+            domain_metrics = self._calculate_domain_metrics(y_true, y_pred, test_df, label_encoder)
+            result.update(domain_metrics)
+
+        return result
+
+    def _calculate_domain_metrics(self, y_true, y_pred, test_df, label_encoder) -> Dict:
+        """Calculate domain-level and domain-and-topic-level performance metrics"""
+        # Create DataFrame for easier manipulation
+        results_df = test_df.copy()
+        results_df['y_true_encoded'] = y_true
+        results_df['y_pred_encoded'] = y_pred
+        results_df['y_true'] = label_encoder.inverse_transform(y_true)
+        results_df['y_pred'] = label_encoder.inverse_transform(y_pred)
+        results_df['correct'] = (y_true == y_pred)
+        
+        # Calculate domain-level metrics (per publisher)
+        domain_metrics = {}
+        domain_topic_metrics = {}
+        
+        for publisher in results_df['PUBLISHER'].unique():
+            publisher_data = results_df[results_df['PUBLISHER'] == publisher]
+            
+            if len(publisher_data) == 0:
+                continue
+                
+            # Domain-level overall metrics
+            pub_y_true = publisher_data['y_true_encoded'].values
+            pub_y_pred = publisher_data['y_pred_encoded'].values
+            
+            domain_accuracy = accuracy_score(pub_y_true, pub_y_pred)
+            domain_precision = precision_score(pub_y_true, pub_y_pred, average='macro', zero_division=0)
+            domain_recall = recall_score(pub_y_true, pub_y_pred, average='macro', zero_division=0)
+            domain_f1 = f1_score(pub_y_true, pub_y_pred, average='macro', zero_division=0)
+            
+            domain_metrics[publisher] = {
+                'accuracy': domain_accuracy,
+                'precision': domain_precision,
+                'recall': domain_recall,
+                'f1': domain_f1,
+                'support': len(publisher_data),
+                'n_correct': int(publisher_data['correct'].sum())
+            }
+            
+            # Domain-and-topic-level metrics (per publisher per topic)
+            domain_topic_metrics[publisher] = {}
+            
+            for topic in publisher_data['y_true'].unique():
+                topic_data = publisher_data[publisher_data['y_true'] == topic]
+                
+                if len(topic_data) == 0:
+                    continue
+                    
+                topic_y_true = topic_data['y_true_encoded'].values
+                topic_y_pred = topic_data['y_pred_encoded'].values
+                
+                topic_accuracy = accuracy_score(topic_y_true, topic_y_pred)
+                
+                # For single-class metrics, we need to handle the case where there's only one class
+                try:
+                    topic_precision = precision_score(topic_y_true, topic_y_pred, average='macro', zero_division=0)
+                    topic_recall = recall_score(topic_y_true, topic_y_pred, average='macro', zero_division=0)
+                    topic_f1 = f1_score(topic_y_true, topic_y_pred, average='macro', zero_division=0)
+                except Exception:
+                    # Fallback for edge cases
+                    topic_precision = topic_accuracy
+                    topic_recall = topic_accuracy
+                    topic_f1 = topic_accuracy
+                
+                domain_topic_metrics[publisher][topic] = {
+                    'accuracy': topic_accuracy,
+                    'precision': topic_precision,
+                    'recall': topic_recall,
+                    'f1': topic_f1,
+                    'support': len(topic_data),
+                    'n_correct': int(topic_data['correct'].sum())
+                }
+        
+        return {
+            'per_domain': domain_metrics,
+            'per_domain_topic': domain_topic_metrics
+        }
 
     def _get_device(self):
         """Get the appropriate device for PyTorch"""
@@ -750,6 +862,8 @@ def main():
 
     results = []
     per_topic_results = []
+    per_domain_results = []
+    per_domain_topic_results = []
 
     for dataset in args.datasets:
         print(f"\n{'=' * 50}")
@@ -823,6 +937,10 @@ def main():
                         if metrics:
                             # Extract per-topic metrics
                             per_topic = metrics.pop("per_topic", {})
+                            
+                            # Extract domain-level metrics
+                            per_domain = metrics.pop("per_domain", {})
+                            per_domain_topic = metrics.pop("per_domain_topic", {})
 
                             # Add macro metrics to results
                             results.append(metrics)
@@ -837,6 +955,30 @@ def main():
                                     **topic_metrics,
                                 }
                                 per_topic_results.append(per_topic_result)
+                            
+                            # Add per-domain metrics to separate results
+                            for domain, domain_metrics in per_domain.items():
+                                per_domain_result = {
+                                    "dataset": metrics["dataset"],
+                                    "model": metrics["model"],
+                                    "feature": metrics["feature"],
+                                    "domain": domain,
+                                    **domain_metrics,
+                                }
+                                per_domain_results.append(per_domain_result)
+                            
+                            # Add per-domain-topic metrics to separate results
+                            for domain, domain_topics in per_domain_topic.items():
+                                for topic, topic_metrics in domain_topics.items():
+                                    per_domain_topic_result = {
+                                        "dataset": metrics["dataset"],
+                                        "model": metrics["model"],
+                                        "feature": metrics["feature"],
+                                        "domain": domain,
+                                        "topic": topic,
+                                        **topic_metrics,
+                                    }
+                                    per_domain_topic_results.append(per_domain_topic_result)
 
                             success_info = ""
                             if "success_rate" in metrics:
@@ -873,6 +1015,30 @@ def main():
             print("No per-topic results to save.")
             per_topic_df = pd.DataFrame()
 
+        # Save per-domain results  
+        if per_domain_results:
+            per_domain_df = pd.DataFrame(per_domain_results)
+            per_domain_df.to_csv(
+                "data/processed/per_domain_evaluation_results.csv", index=False
+            )
+            print(
+                "Per-domain results saved to data/processed/per_domain_evaluation_results.csv"
+            )
+        else:
+            print("No per-domain results to save.")
+
+        # Save per-domain-topic results
+        if per_domain_topic_results:
+            per_domain_topic_df = pd.DataFrame(per_domain_topic_results)
+            per_domain_topic_df.to_csv(
+                "data/processed/per_domain_topic_evaluation_results.csv", index=False
+            )
+            print(
+                "Per-domain-topic results saved to data/processed/per_domain_topic_evaluation_results.csv"
+            )
+        else:
+            print("No per-domain-topic results to save.")
+
         # Print summary
         print("\nTop 10 model-feature combinations by F1 score:")
         top_results = results_df.nlargest(10, "f1")[
@@ -895,6 +1061,28 @@ def main():
                         print(
                             f"  {row['topic']}: F1={row['f1']:.3f} (model={row['model']}, feature={row['feature']}, support={row['support']})"
                         )
+
+        # Print domain-level summary for UCI dataset
+        if per_domain_results and any(result['dataset'] == 'uci' for result in per_domain_results):
+            print("\nTop 10 domain performers for UCI dataset:")
+            uci_domains = [result for result in per_domain_results if result['dataset'] == 'uci']
+            if uci_domains:
+                uci_domain_df = pd.DataFrame(uci_domains)
+                top_domains = uci_domain_df.nlargest(10, "f1")[
+                    ["domain", "model", "feature", "f1", "accuracy", "support"]
+                ]
+                print(top_domains.to_string(index=False))
+
+        # Print domain-topic summary for UCI dataset
+        if per_domain_topic_results and any(result['dataset'] == 'uci' for result in per_domain_topic_results):
+            print("\nTop domain-topic combinations for UCI dataset:")
+            uci_domain_topics = [result for result in per_domain_topic_results if result['dataset'] == 'uci']
+            if uci_domain_topics:
+                uci_dt_df = pd.DataFrame(uci_domain_topics)
+                top_domain_topics = uci_dt_df.nlargest(10, "f1")[
+                    ["domain", "topic", "model", "feature", "f1", "accuracy", "support"]
+                ]
+                print(top_domain_topics.to_string(index=False))
 
 
 if __name__ == "__main__":
