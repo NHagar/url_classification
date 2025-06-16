@@ -205,11 +205,11 @@ class UnifiedModelTrainer:
         # Tokenize
         def tokenize(batch):
             return tokenizer(
-                batch["text"], 
-                padding="max_length", 
-                truncation=True, 
+                batch["text"],
+                padding="max_length",
+                truncation=True,
                 max_length=512,
-                return_tensors="pt"
+                return_tensors="pt",
             )
 
         train_dataset = train_dataset.map(tokenize, batched=True)
@@ -283,7 +283,10 @@ class UnifiedModelTrainer:
             X_train_filtered = X_train[mask]
             y_train_filtered = y_train[mask]
             X_train_vec = embedder.encode(
-                X_train_filtered.tolist(), show_progress_bar=False
+                X_train_filtered.tolist(),
+                batch_size=64,
+                show_progress_bar=True,
+                device="cuda" if torch.cuda.is_available() else "cpu",
             )
             y_train_final = y_train_filtered
         else:
@@ -298,12 +301,14 @@ class UnifiedModelTrainer:
 
         # Create model instance using configuration
         model = get_model_instance(model_config)
-        
+
         # Convert sparse matrices to dense for models that require it
         model_class = model_config.get("model_class")
-        if model_class == "HistGradientBoostingClassifier" and sparse.issparse(X_train_vec):
+        if model_class == "HistGradientBoostingClassifier" and sparse.issparse(
+            X_train_vec
+        ):
             X_train_vec = X_train_vec.toarray()
-        
+
         model.fit(X_train_vec, y_train_encoded)  # type: ignore
 
         # Save model
@@ -361,12 +366,14 @@ class UnifiedModelTrainer:
 
         # Train model
         model = get_model_instance(model_config)
-        
+
         # Convert sparse matrices to dense for models that require it
         model_class = model_config.get("model_class")
-        if model_class == "HistGradientBoostingClassifier" and hasattr(X_distant_vec, 'toarray'):
+        if model_class == "HistGradientBoostingClassifier" and hasattr(
+            X_distant_vec, "toarray"
+        ):
             X_distant_vec = X_distant_vec.toarray()
-        
+
         model.fit(X_distant_vec, y_distant_encoded)
 
         # Save model and metadata
@@ -399,12 +406,14 @@ class UnifiedModelTrainer:
         y_train_encoded = le.fit_transform(y_train)
 
         model = get_model_instance(model_config)
-        
+
         # Convert sparse matrices to dense for models that require it
         model_class = model_config.get("model_class")
-        if model_class == "HistGradientBoostingClassifier" and hasattr(X_train_vec, 'toarray'):
+        if model_class == "HistGradientBoostingClassifier" and hasattr(
+            X_train_vec, "toarray"
+        ):
             X_train_vec = X_train_vec.toarray()
-        
+
         model.fit(X_train_vec, y_train_encoded)
 
         # Save model objects for evaluation
@@ -777,7 +786,10 @@ class UnifiedModelEvaluator:
             X_test_filtered = X_test[mask]
             y_test_filtered = y_test[mask]
             X_test_vec = embedder.encode(
-                X_test_filtered.tolist(), show_progress_bar=False
+                X_test_filtered.tolist(),
+                batch_size=64,
+                device="cuda" if torch.cuda.is_available() else "cpu",
+                show_progress_bar=False,
             )
             y_test_final = y_test_filtered
         else:
@@ -787,9 +799,11 @@ class UnifiedModelEvaluator:
 
         # Convert sparse matrices to dense for models that require it
         model_class = model_config.get("model_class")
-        if model_class == "HistGradientBoostingClassifier" and sparse.issparse(X_test_vec):
+        if model_class == "HistGradientBoostingClassifier" and sparse.issparse(
+            X_test_vec
+        ):
             X_test_vec = X_test_vec.toarray()
-        
+
         # Predict
         y_pred = model.predict(X_test_vec)
         end_time = time.perf_counter()
@@ -835,11 +849,11 @@ class UnifiedModelEvaluator:
         model = torch.load(f"{model_path}/model.pt")
         label_encoder = torch.load(f"{model_path}/label_encoder.pt")
         vectorizer = torch.load(f"{model_path}/vectorizer.pt")
-        
+
         # Check if distant_classifier exists (regular distant labeling) or not (fallback case)
         distant_classifier_path = f"{model_path}/distant_classifier.pt"
         distant_classifier = None
-        
+
         if os.path.exists(distant_classifier_path):
             distant_classifier = torch.load(distant_classifier_path)
         else:
@@ -853,7 +867,11 @@ class UnifiedModelEvaluator:
         X_test_vec = vectorizer.transform(X_test)
 
         # Convert sparse matrices to dense for models that require it (like HistGradientBoostingClassifier)
-        if hasattr(model, '__class__') and model.__class__.__name__ == 'HistGradientBoostingClassifier' and sparse.issparse(X_test_vec):
+        if (
+            hasattr(model, "__class__")
+            and model.__class__.__name__ == "HistGradientBoostingClassifier"
+            and sparse.issparse(X_test_vec)
+        ):
             X_test_vec = X_test_vec.toarray()
 
         # Predict using the trained classifier
@@ -1138,13 +1156,13 @@ def main():
         "--features", nargs="+", default=list(FEATURE_EXTRACTORS_LOADED.keys())
     )
     parser.add_argument(
-        "--run-id", 
+        "--run-id",
         help="Unique identifier for this run (default: timestamp)",
-        default=None
+        default=None,
     )
 
     args = parser.parse_args()
-    
+
     # Generate unique run identifier
     if args.run_id is None:
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1249,7 +1267,7 @@ def main():
 
                             # Add run_id to all metrics for tracking
                             metrics["run_id"] = run_id
-                            
+
                             # Add macro metrics to results
                             results.append(metrics)
 
@@ -1312,7 +1330,7 @@ def main():
         # Create output directory if it doesn't exist
         output_dir = "data/processed"
         os.makedirs(output_dir, exist_ok=True)
-        
+
         # Save macro results with unique filename
         results_df = pd.DataFrame(results)
         macro_filename = f"{output_dir}/unified_evaluation_results_{run_id}.csv"
@@ -1342,7 +1360,9 @@ def main():
         # Save per-domain-topic results
         if per_domain_topic_results:
             per_domain_topic_df = pd.DataFrame(per_domain_topic_results)
-            domain_topic_filename = f"{output_dir}/per_domain_topic_evaluation_results_{run_id}.csv"
+            domain_topic_filename = (
+                f"{output_dir}/per_domain_topic_evaluation_results_{run_id}.csv"
+            )
             per_domain_topic_df.to_csv(domain_topic_filename, index=False)
             print(f"Per-domain-topic results saved to {domain_topic_filename}")
         else:
