@@ -30,6 +30,7 @@ from transformers import (
 )
 
 from url_classification.dataset_loading import load_data, make_splits
+from url_classification.distant_labeling import apply_distant_labeling_algorithm
 from url_classification.model_config import (
     FEATURE_EXTRACTORS,
     MODEL_CONFIGS,
@@ -256,6 +257,12 @@ class UnifiedModelTrainer:
 
         model_config = MODEL_CONFIGS_LOADED[model_type]
 
+        # Special handling for distant labeling
+        if model_type == "distant-labeling":
+            return self._train_distant_labeling_model(
+                X_train, y_train, model_config, feature_name
+            )
+
         # Create appropriate vectorizer based on configuration
         vectorizer_type = model_config.get("vectorizer", "tfidf")
         vectorizer_params = model_config.get("vectorizer_params", {})
@@ -300,7 +307,83 @@ class UnifiedModelTrainer:
             torch.save(vectorizer, f"{output_dir}/vectorizer.pt")
             torch.save("tfidf", f"{output_dir}/vectorizer_type.pt")
 
-        return model, vectorizer if not use_embeddings else None, le
+        return model, le, vectorizer
+
+    def _train_distant_labeling_model(
+        self, X_train, y_train, model_config, feature_name: str
+    ):
+        """Train distant labeling model following the algorithm"""
+        print(f"Starting distant labeling training for {self.dataset_name}...")
+
+        # Load the full dataset to apply distant labeling algorithm
+        full_df, _ = load_data(self.dataset_name)
+
+        # Apply distant labeling algorithm
+        training_data, all_data, classifier = apply_distant_labeling_algorithm(
+            full_df, self.dataset_name, feature_name
+        )
+
+        if training_data is None or len(training_data) == 0:
+            print(
+                "No URL-based training data available - falling back to regular training"
+            )
+            # Fall back to regular supervised training with provided labels
+            return self._train_regular_model(
+                X_train, y_train, model_config, feature_name
+            )
+
+        # Extract features from distant-labeled training data
+        X_distant = classifier.get_feature_text(training_data, feature_name)
+        y_distant = training_data[
+            "category_label"
+        ]  # Use actual categories instead of binary labels
+
+        # Train multi-class classifier
+        vectorizer_params = model_config.get("vectorizer_params", {})
+        vectorizer = TfidfVectorizer(**vectorizer_params)
+        X_distant_vec = vectorizer.fit_transform(X_distant)
+
+        # Create label encoder for multi-class classification
+        le = LabelEncoder()
+        y_distant_encoded = le.fit_transform(y_distant)
+
+        # Train model
+        model = get_model_instance(model_config)
+        model.fit(X_distant_vec, y_distant_encoded)
+
+        # Save model and metadata
+        output_dir = f"models/distant-labeling/{self.dataset_name}_{feature_name}"
+        os.makedirs(output_dir, exist_ok=True)
+
+        torch.save(model, f"{output_dir}/model.pt")
+        torch.save(le, f"{output_dir}/label_encoder.pt")
+        torch.save(vectorizer, f"{output_dir}/vectorizer.pt")
+        torch.save("tfidf", f"{output_dir}/vectorizer_type.pt")
+        torch.save(classifier, f"{output_dir}/distant_classifier.pt")
+
+        # Save category information
+        categories = list(le.classes_)
+        torch.save(categories, f"{output_dir}/categories.pt")
+
+        print(
+            f"Distant labeling model trained with {len(training_data)} examples across {len(categories)} categories"
+        )
+        print(f"Categories: {categories}")
+        return model, le, vectorizer
+
+    def _train_regular_model(self, X_train, y_train, model_config, feature_name: str):
+        """Regular training fallback for distant labeling"""
+        vectorizer_params = model_config.get("vectorizer_params", {})
+        vectorizer = TfidfVectorizer(**vectorizer_params)
+        X_train_vec = vectorizer.fit_transform(X_train)
+
+        le = LabelEncoder()
+        y_train_encoded = le.fit_transform(y_train)
+
+        model = get_model_instance(model_config)
+        model.fit(X_train_vec, y_train_encoded)
+
+        return model, le, vectorizer
 
     def train_llm_model(self, X_train, y_train, model_type: str, feature_name: str):
         """Prepare LLM model (no actual training needed)"""
@@ -627,6 +710,10 @@ class UnifiedModelEvaluator:
         self, X_test, y_test, model_type: str, feature_name: str
     ) -> Optional[Dict]:
         """Evaluate traditional ML models"""
+        # Special handling for distant labeling
+        if model_type == "distant-labeling":
+            return self._evaluate_distant_labeling(X_test, y_test, feature_name)
+
         model_path = f"models/{model_type}/{self.dataset_name}_{feature_name}"
 
         if not os.path.exists(model_path):
@@ -686,6 +773,115 @@ class UnifiedModelEvaluator:
 
         metrics.update(
             {"model": model_type, "dataset": self.dataset_name, "feature": feature_name}
+        )
+
+        return metrics
+
+    def _evaluate_distant_labeling(
+        self, X_test, y_test, feature_name: str
+    ) -> Optional[Dict]:
+        """Evaluate distant labeling model"""
+        model_path = f"models/distant-labeling/{self.dataset_name}_{feature_name}"
+
+        if not os.path.exists(model_path):
+            print(f"Distant labeling model not found at {model_path}")
+            return None
+
+        # Load model components
+        model = torch.load(f"{model_path}/model.pt")
+        label_encoder = torch.load(f"{model_path}/label_encoder.pt")
+        vectorizer = torch.load(f"{model_path}/vectorizer.pt")
+        distant_classifier = torch.load(f"{model_path}/distant_classifier.pt")
+
+        print(f"Evaluating distant labeling model on {len(X_test)} test samples...")
+
+        start_time = time.perf_counter()
+
+        # Transform features
+        X_test_vec = vectorizer.transform(X_test)
+
+        # Predict using the trained classifier
+        y_pred = model.predict(X_test_vec)
+
+        end_time = time.perf_counter()
+
+        # Calculate metrics using the multi-class classification
+        # We need to map the original test labels to the distant labeling categories
+
+        # For evaluation, we'll use the original test labels as ground truth
+        # and see how well the distant labeling model performs
+        try:
+            # Try to encode the test labels using the distant labeling label encoder
+            y_test_encoded = label_encoder.transform(y_test)
+        except ValueError:
+            # If test labels don't match distant labeling categories,
+            # we'll create a mapping or use a subset of test data
+            print("Warning: Test labels don't match distant labeling categories")
+
+            # Get the categories that the distant labeling model can predict
+            distant_categories = set(label_encoder.classes_)
+
+            # Filter test data to only include samples with categories we can predict
+            valid_indices = []
+            valid_y_test = []
+            valid_X_test = []
+
+            for i, label in enumerate(y_test):
+                if label in distant_categories:
+                    valid_indices.append(i)
+                    valid_y_test.append(label)
+                    valid_X_test.append(X_test.iloc[i])
+
+            if len(valid_indices) == 0:
+                print(
+                    "No matching categories found between test set and distant labeling model"
+                )
+                return None
+
+            # Re-run prediction on filtered data
+            X_test_filtered = pd.Series(valid_X_test)
+            X_test_vec_filtered = vectorizer.transform(X_test_filtered)
+            y_pred_filtered = model.predict(X_test_vec_filtered)
+            y_test_encoded = label_encoder.transform(valid_y_test)
+
+            print(
+                f"Evaluation limited to {len(valid_indices)} samples with matching categories"
+            )
+
+            # Use filtered data for metrics
+            y_pred = y_pred_filtered
+            y_test_final = y_test_encoded
+        else:
+            y_test_final = y_test_encoded
+
+        # Calculate metrics
+        metrics = self._calculate_metrics(
+            y_test_final,
+            y_pred,
+            len(y_pred),
+            end_time - start_time,
+            label_encoder,
+            None,
+        )
+
+        # Load full test dataset for additional metadata
+        full_df, _ = load_data(self.dataset_name)
+        train, val, test_df = make_splits(full_df, self.dataset_name)
+
+        metrics.update(
+            {
+                "model": "distant-labeling",
+                "dataset": self.dataset_name,
+                "feature": feature_name,
+                "distant_labeling_info": {
+                    "uses_url_categorization": distant_classifier.uses_url_based_categorization(
+                        test_df
+                    ),
+                    "n_url_labeled": len(distant_classifier.valid_categories),
+                    "n_classified": len(y_pred),
+                    "categories": list(label_encoder.classes_),
+                },
+            }
         )
 
         return metrics
