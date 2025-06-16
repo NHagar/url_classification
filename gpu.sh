@@ -12,4 +12,4 @@
 
 module purge all
 
-uv run -m url_classification.train_and_evaluate --models distilbert,distilbert-3k,distilbert-1k,xgboost --mode train
+uv run -m url_classification.train_and_evaluate --models distilbert distilbert-3k distilbert-1k xgboost --mode train
