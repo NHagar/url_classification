@@ -11,6 +11,7 @@ import pandas as pd
 import torch
 from datasets import Dataset, Features, Value
 from openai import OpenAI
+from scipy import sparse
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import (
@@ -297,6 +298,12 @@ class UnifiedModelTrainer:
 
         # Create model instance using configuration
         model = get_model_instance(model_config)
+        
+        # Convert sparse matrices to dense for models that require it
+        model_class = model_config.get("model_class")
+        if model_class == "HistGradientBoostingClassifier" and sparse.issparse(X_train_vec):
+            X_train_vec = X_train_vec.toarray()
+        
         model.fit(X_train_vec, y_train_encoded)  # type: ignore
 
         # Save model
@@ -354,6 +361,12 @@ class UnifiedModelTrainer:
 
         # Train model
         model = get_model_instance(model_config)
+        
+        # Convert sparse matrices to dense for models that require it
+        model_class = model_config.get("model_class")
+        if model_class == "HistGradientBoostingClassifier" and hasattr(X_distant_vec, 'toarray'):
+            X_distant_vec = X_distant_vec.toarray()
+        
         model.fit(X_distant_vec, y_distant_encoded)
 
         # Save model and metadata
@@ -386,6 +399,12 @@ class UnifiedModelTrainer:
         y_train_encoded = le.fit_transform(y_train)
 
         model = get_model_instance(model_config)
+        
+        # Convert sparse matrices to dense for models that require it
+        model_class = model_config.get("model_class")
+        if model_class == "HistGradientBoostingClassifier" and hasattr(X_train_vec, 'toarray'):
+            X_train_vec = X_train_vec.toarray()
+        
         model.fit(X_train_vec, y_train_encoded)
 
         # Save model objects for evaluation
@@ -766,6 +785,11 @@ class UnifiedModelEvaluator:
             X_test_vec = vectorizer.transform(X_test)
             y_test_final = y_test
 
+        # Convert sparse matrices to dense for models that require it
+        model_class = model_config.get("model_class")
+        if model_class == "HistGradientBoostingClassifier" and sparse.issparse(X_test_vec):
+            X_test_vec = X_test_vec.toarray()
+        
         # Predict
         y_pred = model.predict(X_test_vec)
         end_time = time.perf_counter()
@@ -827,6 +851,10 @@ class UnifiedModelEvaluator:
 
         # Transform features
         X_test_vec = vectorizer.transform(X_test)
+
+        # Convert sparse matrices to dense for models that require it (like HistGradientBoostingClassifier)
+        if hasattr(model, '__class__') and model.__class__.__name__ == 'HistGradientBoostingClassifier' and sparse.issparse(X_test_vec):
+            X_test_vec = X_test_vec.toarray()
 
         # Predict using the trained classifier
         y_pred = model.predict(X_test_vec)

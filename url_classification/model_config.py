@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 import xgboost as xgb
 import yaml
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.svm import LinearSVC
@@ -82,8 +82,8 @@ MODEL_CONFIGS = {
         "type": "traditional",
         "vectorizer": "tfidf",
         "vectorizer_params": {"max_features": 5000},
-        "model_class": "GradientBoostingClassifier",
-        "model_params": {"n_estimators": 100, "learning_rate": 0.1, "random_state": 42},
+        "model_class": "HistGradientBoostingClassifier",
+        "model_params": {"learning_rate": 0.1, "random_state": 42},
     },
     "llm-local": {
         "type": "llm",
@@ -262,7 +262,7 @@ def get_model_instance(config: Dict[str, Any]):
         "LogisticRegression": LogisticRegression,
         "LinearSVC": LinearSVC,
         "RandomForestClassifier": RandomForestClassifier,
-        "GradientBoostingClassifier": GradientBoostingClassifier,
+        "HistGradientBoostingClassifier": HistGradientBoostingClassifier,
         "MultinomialNB": MultinomialNB,
         "XGBClassifier": xgb.XGBClassifier,
     }
