@@ -27,9 +27,6 @@ models:
       max_features: 2000
       min_df: 5
       max_df: 0.95
-      ngram_range: !!python/tuple
-      - 1
-      - 1
     model_class: SVC
     model_params:
       kernel: linear
@@ -50,9 +47,6 @@ models:
     vectorizer: tfidf
     vectorizer_params:
       max_features: 10000
-      ngram_range: !!python/tuple
-      - 1
-      - 2
     model_class: MultinomialNB
     model_params:
       alpha: 1.0

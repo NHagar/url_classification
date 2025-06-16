@@ -41,10 +41,13 @@ MODEL_CONFIGS = {
             "max_features": 2000,  # Reduced from 5000
             "min_df": 5,  # Ignore terms that appear in fewer than 5 documents
             "max_df": 0.95,  # Ignore terms that appear in more than 95% of documents
-            "ngram_range": (1, 1),  # Only unigrams for speed
         },
         "model_class": "SVC",
-        "model_params": {"kernel": "linear", "random_state": 42, "probability": False},  # Disabled probability for speed
+        "model_params": {
+            "kernel": "linear",
+            "random_state": 42,
+            "probability": False,
+        },  # Disabled probability for speed
     },
     "tree-ensemble": {
         "type": "traditional",
@@ -56,7 +59,7 @@ MODEL_CONFIGS = {
     "distant-labeling": {
         "type": "traditional",
         "vectorizer": "tfidf",
-        "vectorizer_params": {"max_features": 10000, "ngram_range": (1, 2)},
+        "vectorizer_params": {"max_features": 10000},
         "model_class": "MultinomialNB",
         "model_params": {"alpha": 1.0},
     },
