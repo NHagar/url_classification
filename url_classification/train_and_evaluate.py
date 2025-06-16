@@ -2,6 +2,7 @@ import argparse
 import os
 import time
 import warnings
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import duckdb
@@ -1067,13 +1068,25 @@ def main():
     parser.add_argument(
         "--features", nargs="+", default=list(FEATURE_EXTRACTORS_LOADED.keys())
     )
+    parser.add_argument(
+        "--run-id", 
+        help="Unique identifier for this run (default: timestamp)",
+        default=None
+    )
 
     args = parser.parse_args()
+    
+    # Generate unique run identifier
+    if args.run_id is None:
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    else:
+        run_id = args.run_id
 
     # Print configuration summary
     print(f"\n{'=' * 50}")
     print("Configuration Summary")
     print(f"{'=' * 50}")
+    print(f"Run ID: {run_id}")
     print(f"Models: {len(args.models)} - {', '.join(args.models)}")
     print(f"Features: {len(args.features)} - {', '.join(args.features)}")
     print(f"Datasets: {len(args.datasets)} - {', '.join(args.datasets)}")
@@ -1165,12 +1178,16 @@ def main():
                             per_domain = metrics.pop("per_domain", {})
                             per_domain_topic = metrics.pop("per_domain_topic", {})
 
+                            # Add run_id to all metrics for tracking
+                            metrics["run_id"] = run_id
+                            
                             # Add macro metrics to results
                             results.append(metrics)
 
                             # Add per-topic metrics to separate results
                             for topic, topic_metrics in per_topic.items():
                                 per_topic_result = {
+                                    "run_id": run_id,
                                     "dataset": metrics["dataset"],
                                     "model": metrics["model"],
                                     "feature": metrics["feature"],
@@ -1182,6 +1199,7 @@ def main():
                             # Add per-domain metrics to separate results
                             for domain, domain_metrics in per_domain.items():
                                 per_domain_result = {
+                                    "run_id": run_id,
                                     "dataset": metrics["dataset"],
                                     "model": metrics["model"],
                                     "feature": metrics["feature"],
@@ -1194,6 +1212,7 @@ def main():
                             for domain, domain_topics in per_domain_topic.items():
                                 for topic, topic_metrics in domain_topics.items():
                                     per_domain_topic_result = {
+                                        "run_id": run_id,
                                         "dataset": metrics["dataset"],
                                         "model": metrics["model"],
                                         "feature": metrics["feature"],
@@ -1221,21 +1240,23 @@ def main():
 
     # Save results
     if results and args.mode in ["evaluate", "both"]:
-        # Save macro results
+        # Create output directory if it doesn't exist
+        output_dir = "data/processed"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Save macro results with unique filename
         results_df = pd.DataFrame(results)
-        results_df.to_csv("data/processed/unified_evaluation_results.csv", index=False)
+        macro_filename = f"{output_dir}/unified_evaluation_results_{run_id}.csv"
+        results_df.to_csv(macro_filename, index=False)
         print(f"\n{'=' * 50}")
-        print("Macro results saved to data/processed/unified_evaluation_results.csv")
+        print(f"Macro results saved to {macro_filename}")
 
         # Save per-topic results
         if per_topic_results:
             per_topic_df = pd.DataFrame(per_topic_results)
-            per_topic_df.to_csv(
-                "data/processed/per_topic_evaluation_results.csv", index=False
-            )
-            print(
-                "Per-topic results saved to data/processed/per_topic_evaluation_results.csv"
-            )
+            topic_filename = f"{output_dir}/per_topic_evaluation_results_{run_id}.csv"
+            per_topic_df.to_csv(topic_filename, index=False)
+            print(f"Per-topic results saved to {topic_filename}")
         else:
             print("No per-topic results to save.")
             per_topic_df = pd.DataFrame()
@@ -1243,24 +1264,18 @@ def main():
         # Save per-domain results
         if per_domain_results:
             per_domain_df = pd.DataFrame(per_domain_results)
-            per_domain_df.to_csv(
-                "data/processed/per_domain_evaluation_results.csv", index=False
-            )
-            print(
-                "Per-domain results saved to data/processed/per_domain_evaluation_results.csv"
-            )
+            domain_filename = f"{output_dir}/per_domain_evaluation_results_{run_id}.csv"
+            per_domain_df.to_csv(domain_filename, index=False)
+            print(f"Per-domain results saved to {domain_filename}")
         else:
             print("No per-domain results to save.")
 
         # Save per-domain-topic results
         if per_domain_topic_results:
             per_domain_topic_df = pd.DataFrame(per_domain_topic_results)
-            per_domain_topic_df.to_csv(
-                "data/processed/per_domain_topic_evaluation_results.csv", index=False
-            )
-            print(
-                "Per-domain-topic results saved to data/processed/per_domain_topic_evaluation_results.csv"
-            )
+            domain_topic_filename = f"{output_dir}/per_domain_topic_evaluation_results_{run_id}.csv"
+            per_domain_topic_df.to_csv(domain_topic_filename, index=False)
+            print(f"Per-domain-topic results saved to {domain_topic_filename}")
         else:
             print("No per-domain-topic results to save.")
 
