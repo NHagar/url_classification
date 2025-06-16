@@ -388,6 +388,21 @@ class UnifiedModelTrainer:
         model = get_model_instance(model_config)
         model.fit(X_train_vec, y_train_encoded)
 
+        # Save model objects for evaluation
+        output_dir = f"models/distant-labeling/{self.dataset_name}_{feature_name}"
+        os.makedirs(output_dir, exist_ok=True)
+
+        torch.save(model, f"{output_dir}/model.pt")
+        torch.save(le, f"{output_dir}/label_encoder.pt")
+        torch.save(vectorizer, f"{output_dir}/vectorizer.pt")
+        torch.save("tfidf", f"{output_dir}/vectorizer_type.pt")
+
+        # Save category information
+        categories = list(le.classes_)
+        torch.save(categories, f"{output_dir}/categories.pt")
+
+        print(f"Fallback model trained and saved with {len(categories)} categories")
+
         return model, le, vectorizer
 
     def train_llm_model(self, X_train, y_train, model_type: str, feature_name: str):
@@ -796,7 +811,15 @@ class UnifiedModelEvaluator:
         model = torch.load(f"{model_path}/model.pt")
         label_encoder = torch.load(f"{model_path}/label_encoder.pt")
         vectorizer = torch.load(f"{model_path}/vectorizer.pt")
-        distant_classifier = torch.load(f"{model_path}/distant_classifier.pt")
+        
+        # Check if distant_classifier exists (regular distant labeling) or not (fallback case)
+        distant_classifier_path = f"{model_path}/distant_classifier.pt"
+        distant_classifier = None
+        
+        if os.path.exists(distant_classifier_path):
+            distant_classifier = torch.load(distant_classifier_path)
+        else:
+            print("Using fallback evaluation (no distant classifier found)")
 
         print(f"Evaluating distant labeling model on {len(X_test)} test samples...")
 
@@ -873,19 +896,33 @@ class UnifiedModelEvaluator:
         full_df, _ = load_data(self.dataset_name)
         train, val, test_df = make_splits(full_df, self.dataset_name)
 
+        # Create distant labeling info based on whether we have distant classifier or not
+        if distant_classifier is not None:
+            distant_labeling_info = {
+                "uses_url_categorization": distant_classifier.uses_url_based_categorization(
+                    test_df
+                ),
+                "n_url_labeled": len(distant_classifier.valid_categories),
+                "n_classified": len(y_pred),
+                "categories": list(label_encoder.classes_),
+                "is_fallback": False,
+            }
+        else:
+            # Fallback case - we didn't use distant labeling
+            distant_labeling_info = {
+                "uses_url_categorization": False,
+                "n_url_labeled": 0,
+                "n_classified": len(y_pred),
+                "categories": list(label_encoder.classes_),
+                "is_fallback": True,
+            }
+
         metrics.update(
             {
                 "model": "distant-labeling",
                 "dataset": self.dataset_name,
                 "feature": feature_name,
-                "distant_labeling_info": {
-                    "uses_url_categorization": distant_classifier.uses_url_based_categorization(
-                        test_df
-                    ),
-                    "n_url_labeled": len(distant_classifier.valid_categories),
-                    "n_classified": len(y_pred),
-                    "categories": list(label_encoder.classes_),
-                },
+                "distant_labeling_info": distant_labeling_info,
             }
         )
 
