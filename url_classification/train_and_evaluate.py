@@ -204,7 +204,11 @@ class UnifiedModelTrainer:
         # Tokenize
         def tokenize(batch):
             return tokenizer(
-                batch["text"], padding=True, truncation=True, return_tensors="pt"
+                batch["text"], 
+                padding="max_length", 
+                truncation=True, 
+                max_length=512,
+                return_tensors="pt"
             )
 
         train_dataset = train_dataset.map(tokenize, batched=True)
