@@ -24,14 +24,16 @@ models:
     type: traditional
     vectorizer: tfidf
     vectorizer_params:
-      max_features: 2000
-      min_df: 5
+      max_features: 5000
+      min_df: 2
       max_df: 0.95
-    model_class: SVC
+    model_class: LinearSVC
     model_params:
-      kernel: linear
+      C: 1.0
+      loss: squared_hinge
+      dual: false
+      class_weight: balanced
       random_state: 42
-      probability: false
   tree-ensemble:
     type: traditional
     vectorizer: tfidf

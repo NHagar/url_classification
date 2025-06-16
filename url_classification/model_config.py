@@ -9,7 +9,7 @@ import yaml
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.svm import SVC
+from sklearn.svm import LinearSVC
 
 # Model configurations with hyperparameters
 MODEL_CONFIGS = {
@@ -38,16 +38,18 @@ MODEL_CONFIGS = {
         "type": "traditional",
         "vectorizer": "tfidf",
         "vectorizer_params": {
-            "max_features": 2000,  # Reduced from 5000
-            "min_df": 5,  # Ignore terms that appear in fewer than 5 documents
-            "max_df": 0.95,  # Ignore terms that appear in more than 95% of documents
+            "max_features": 5000,
+            "min_df": 2,
+            "max_df": 0.95,
         },
-        "model_class": "SVC",
+        "model_class": "LinearSVC",
         "model_params": {
-            "kernel": "linear",
+            "C": 1.0,
+            "loss": "squared_hinge",
+            "dual": False,
+            "class_weight": "balanced",
             "random_state": 42,
-            "probability": False,
-        },  # Disabled probability for speed
+        },
     },
     "tree-ensemble": {
         "type": "traditional",
@@ -258,7 +260,7 @@ def get_model_instance(config: Dict[str, Any]):
 
     model_classes = {
         "LogisticRegression": LogisticRegression,
-        "SVC": SVC,
+        "LinearSVC": LinearSVC,
         "RandomForestClassifier": RandomForestClassifier,
         "GradientBoostingClassifier": GradientBoostingClassifier,
         "MultinomialNB": MultinomialNB,
