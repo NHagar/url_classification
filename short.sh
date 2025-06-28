@@ -11,4 +11,4 @@
 
 module purge all
 
-uv run -m url_classification.train_and_evaluate --models log-reg svm tree-ensemble distant-labeling --mode evaluate
+uv run -m url_classification.train_and_evaluate --models log-reg svm tree-ensemble distant-labeling gradient-boosting --mode evaluate
