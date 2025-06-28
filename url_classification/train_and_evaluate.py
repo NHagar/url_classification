@@ -785,11 +785,12 @@ class UnifiedModelEvaluator:
             mask = X_test.str.len() < max_length
             X_test_filtered = X_test[mask]
             y_test_filtered = y_test[mask]
+
             X_test_vec = embedder.encode(
                 X_test_filtered.tolist(),
                 batch_size=64,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-                show_progress_bar=False,
+                show_progress_bar=True,
+                device=self._get_device(),
             )
             y_test_final = y_test_filtered
         else:
@@ -835,10 +836,59 @@ class UnifiedModelEvaluator:
 
         return metrics
 
+    def _load_category_mapping(self) -> Optional[Dict[str, str]]:
+        """Load category mapping from CSV files based on dataset"""
+        mapping_files = {
+            "recognasumm": "data/recognasumm_categories_attributed.csv",
+            "uci": "data/uci_categories_attributed.csv",
+        }
+
+        mapping_file = mapping_files.get(self.dataset_name)
+        if not mapping_file or not os.path.exists(mapping_file):
+            return None
+
+        try:
+            df = pd.read_csv(mapping_file)
+            # Create mapping from slug to category, filtering out empty categories
+            mapping = {}
+            for _, row in df.iterrows():
+                slug = str(row.get("slug", "")).strip()
+                category = str(row.get("category", "")).strip()
+                if slug and category and category != "nan":
+                    mapping[slug] = category
+            return mapping if mapping else None
+        except Exception as e:
+            print(f"Error loading category mapping: {e}")
+            return None
+
+    def _get_mapped_category(
+        self, url_text: str, category_mapping: Dict[str, str]
+    ) -> Optional[str]:
+        """Extract category from URL text using category mapping"""
+        url_text_lower = url_text.lower()
+
+        # Try to find matching slugs in the URL text
+        for slug, category in category_mapping.items():
+            slug_lower = slug.lower()
+            # Check if slug appears in URL as a path component
+            if (
+                f"/{slug_lower}/" in url_text_lower
+                or url_text_lower.endswith(f"/{slug_lower}")
+                or url_text_lower.startswith(f"{slug_lower}/")
+                or f"/{slug_lower}?" in url_text_lower
+                or f"/{slug_lower}#" in url_text_lower
+            ):
+                return category
+
+        return None
+
     def _evaluate_distant_labeling(
         self, X_test, y_test, feature_name: str
     ) -> Optional[Dict]:
-        """Evaluate distant labeling model"""
+        """Evaluate distant labeling model using two-stage approach:
+        1. First assign labels based on category mapping if available
+        2. Then use classifier for remaining records
+        """
         model_path = f"models/distant-labeling/{self.dataset_name}_{feature_name}"
 
         if not os.path.exists(model_path):
@@ -850,61 +900,73 @@ class UnifiedModelEvaluator:
         label_encoder = torch.load(f"{model_path}/label_encoder.pt")
         vectorizer = torch.load(f"{model_path}/vectorizer.pt")
 
-        # Check if distant_classifier exists (regular distant labeling) or not (fallback case)
-        distant_classifier_path = f"{model_path}/distant_classifier.pt"
-        distant_classifier = None
-
-        if os.path.exists(distant_classifier_path):
-            distant_classifier = torch.load(distant_classifier_path)
-        else:
-            print("Using fallback evaluation (no distant classifier found)")
-
         print(f"Evaluating distant labeling model on {len(X_test)} test samples...")
 
         start_time = time.perf_counter()
 
-        # Transform features
-        X_test_vec = vectorizer.transform(X_test)
+        # Stage 1: Apply category mapping if available
+        category_mapping = self._load_category_mapping()
+        y_pred_final = [None] * len(X_test)
+        n_url_labeled = 0
 
-        # Convert sparse matrices to dense for models that require it (like HistGradientBoostingClassifier)
-        if (
-            hasattr(model, "__class__")
-            and model.__class__.__name__ == "HistGradientBoostingClassifier"
-            and sparse.issparse(X_test_vec)
-        ):
-            X_test_vec = X_test_vec.toarray()
+        if category_mapping:
+            print(f"Applying category mapping from {len(category_mapping)} entries...")
+            for i, url_text in enumerate(X_test):
+                # Extract potential slug from URL text for mapping
+                mapped_category = self._get_mapped_category(url_text, category_mapping)
+                if mapped_category and mapped_category in label_encoder.classes_:
+                    y_pred_final[i] = label_encoder.transform([mapped_category])[0]
+                    n_url_labeled += 1
 
-        # Predict using the trained classifier
-        y_pred = model.predict(X_test_vec)
+        # Stage 2: Use classifier for remaining unlabeled records
+        remaining_indices = [i for i, pred in enumerate(y_pred_final) if pred is None]
+        n_classified = 0
+
+        if remaining_indices:
+            print(f"Using classifier for {len(remaining_indices)} remaining samples...")
+
+            # Get remaining samples
+            X_remaining = pd.Series([X_test.iloc[i] for i in remaining_indices])
+
+            # Transform features
+            X_remaining_vec = vectorizer.transform(X_remaining)
+
+            # Convert sparse matrices to dense for models that require it
+            if (
+                hasattr(model, "__class__")
+                and model.__class__.__name__ == "HistGradientBoostingClassifier"
+                and sparse.issparse(X_remaining_vec)
+            ):
+                X_remaining_vec = X_remaining_vec.toarray()
+
+            # Predict using the trained classifier
+            y_pred_remaining = model.predict(X_remaining_vec)
+
+            # Fill in the remaining predictions
+            for i, idx in enumerate(remaining_indices):
+                y_pred_final[idx] = y_pred_remaining[i]
+                n_classified += 1
 
         end_time = time.perf_counter()
 
-        # Calculate metrics using the multi-class classification
-        # We need to map the original test labels to the distant labeling categories
+        # Convert final predictions to numpy array
+        y_pred_final = np.array(y_pred_final)
 
-        # For evaluation, we'll use the original test labels as ground truth
-        # and see how well the distant labeling model performs
+        # Prepare test labels for evaluation
         try:
-            # Try to encode the test labels using the distant labeling label encoder
             y_test_encoded = label_encoder.transform(y_test)
         except ValueError:
-            # If test labels don't match distant labeling categories,
-            # we'll create a mapping or use a subset of test data
+            # If test labels don't match distant labeling categories, filter to valid ones
             print("Warning: Test labels don't match distant labeling categories")
 
-            # Get the categories that the distant labeling model can predict
             distant_categories = set(label_encoder.classes_)
-
-            # Filter test data to only include samples with categories we can predict
             valid_indices = []
             valid_y_test = []
-            valid_X_test = []
 
             for i, label in enumerate(y_test):
                 if label in distant_categories:
                     valid_indices.append(i)
                     valid_y_test.append(label)
-                    valid_X_test.append(X_test.iloc[i])
 
             if len(valid_indices) == 0:
                 print(
@@ -912,56 +974,35 @@ class UnifiedModelEvaluator:
                 )
                 return None
 
-            # Re-run prediction on filtered data
-            X_test_filtered = pd.Series(valid_X_test)
-            X_test_vec_filtered = vectorizer.transform(X_test_filtered)
-            y_pred_filtered = model.predict(X_test_vec_filtered)
+            # Filter predictions and test labels to valid indices
+            y_pred_final = y_pred_final[valid_indices]
             y_test_encoded = label_encoder.transform(valid_y_test)
 
             print(
                 f"Evaluation limited to {len(valid_indices)} samples with matching categories"
             )
-
-            # Use filtered data for metrics
-            y_pred = y_pred_filtered
-            y_test_final = y_test_encoded
         else:
-            y_test_final = y_test_encoded
+            y_test_encoded = y_test_encoded
 
         # Calculate metrics
         metrics = self._calculate_metrics(
-            y_test_final,
-            y_pred,
-            len(y_pred),
+            y_test_encoded,
+            y_pred_final,
+            len(y_pred_final),
             end_time - start_time,
             label_encoder,
             None,
         )
 
-        # Load full test dataset for additional metadata
-        full_df, _ = load_data(self.dataset_name)
-        train, val, test_df = make_splits(full_df, self.dataset_name)
-
-        # Create distant labeling info based on whether we have distant classifier or not
-        if distant_classifier is not None:
-            distant_labeling_info = {
-                "uses_url_categorization": distant_classifier.uses_url_based_categorization(
-                    test_df
-                ),
-                "n_url_labeled": len(distant_classifier.valid_categories),
-                "n_classified": len(y_pred),
-                "categories": list(label_encoder.classes_),
-                "is_fallback": False,
-            }
-        else:
-            # Fallback case - we didn't use distant labeling
-            distant_labeling_info = {
-                "uses_url_categorization": False,
-                "n_url_labeled": 0,
-                "n_classified": len(y_pred),
-                "categories": list(label_encoder.classes_),
-                "is_fallback": True,
-            }
+        # Create distant labeling info
+        distant_labeling_info = {
+            "uses_url_categorization": n_url_labeled > 0,
+            "n_url_labeled": n_url_labeled,
+            "n_classified": n_classified,
+            "total_predictions": len(y_pred_final),
+            "categories": list(label_encoder.classes_),
+            "is_fallback": False,
+        }
 
         metrics.update(
             {
