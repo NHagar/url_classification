@@ -2,6 +2,115 @@
 
 A machine learning project for classifying news articles based on URLs, titles, and content features. This repository contains tools for training various classification models, analyzing dataset statistics, and understanding URL structure patterns.
 
+## Quick Start: Reproduction Guide
+
+Follow these steps to reproduce the results from the paper:
+
+### Step 1: Requirements
+
+**Minimum Requirements:**
+- Python 3.12 (required - see compatibility notes below)
+- 16GB RAM
+- 10GB free disk storage
+- CPU with 8+ cores
+
+**For Full Reproduction (including deep learning models):**
+- Python 3.12
+- GPU (A100 or similar recommended)
+- 16GB+ RAM
+- 15GB+ free disk storage
+
+### Step 2: Environment Setup
+
+```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Python 3.12 using uv
+uv python install 3.12
+
+# Create environment and install dependencies with Python 3.12
+uv sync --python 3.12
+
+# Create required directories
+mkdir -p data/processed
+```
+
+**Troubleshooting:** If you encounter PyTorch compatibility issues:
+```bash
+uv pip install --force-reinstall torch==2.4.0
+```
+
+### Step 3: Configure Models and Features (Optional)
+
+Based on your computational resources, you may want to exclude computationally expensive models:
+
+**For laptop/local reproduction** (exclude GPU models):
+- Comment out `distilbert`, `distilbert-1k`, `distilbert-3k`, and `xgboost` in:
+  - `config/ml_configs.yaml`
+  - `url_classification/model_config.py`
+
+**For full reproduction** (keep all models):
+- No changes needed - all models are included by default
+
+### Step 4: Run Reproduction Scripts
+
+Execute the following commands in order to reproduce each table/figure:
+
+**Table 1 - Descriptive Statistics:**
+```bash
+uv run python dataset_descriptive_stats.py
+```
+
+**Table 2 - Model Performance (F1 Scores):**
+```bash
+# Laptop-friendly version (traditional models only, ~2-4 hours)
+uv run -m url_classification.train_and_evaluate \
+  --models log-reg svm tree-ensemble distant-labeling gradient-boosting \
+  --mode evaluate
+
+# Full reproduction (requires GPU, ~48 hours)
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert log-reg svm tree-ensemble distant-labeling gradient-boosting xgboost \
+  --mode evaluate
+```
+
+**Table 3 - Per-Topic Performance:**
+- Same output as Table 2 (per-topic results included in evaluation metrics)
+
+**Table 4 - Date Removal Impact:**
+```bash
+uv run python date_ablation_study.py \
+  --datasets huffpo uci recognasumm \
+  --models log-reg \
+  --features url_path_raw \
+  --mode both
+```
+
+**Figure 1 - Model Throughput:**
+- Throughput metrics are captured during Table 2 evaluation
+
+**Figure 2 - Training Data Ablation:**
+```bash
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert distilbert-1k distilbert-3k \
+  --mode evaluate
+```
+
+**URL Structure Analysis:**
+```bash
+uv run python url_structure_analysis.py
+```
+
+### Step 5: Find Results
+
+All outputs are saved to `data/processed/`:
+- `*_stats.txt` - Dataset statistics (Table 1)
+- `evaluation_metrics*.csv` - Model performance (Tables 2 & 3, Figure 1 throughput data)
+- `date_ablation_*.csv` - Date removal analysis (Table 4)
+- `url_structure_analysis.png` - URL structure visualizations
+- Model artifacts and training metrics for Figure 2 are in evaluation outputs
+
 ## Repository Structure
 
 ```
