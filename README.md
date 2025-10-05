@@ -282,6 +282,50 @@ python --version  # Should show Python 3.12.x
 uv run python -c "import torch; print(torch.__version__)"  # Should show 2.4.0
 ```
 
+## Data Provenance
+
+### Dataset Sources
+
+This study uses three publicly available news classification datasets, all accessed in **June 2025**:
+
+#### 1. HuffPost News Categories Dataset
+- **Source**: Kaggle - [News Category Dataset](https://www.kaggle.com/datasets/rmisra/news-category-dataset)
+- **Original Author**: Rishabh Misra
+- **File**: `news_categories.parquet`
+- **Description**: News articles from HuffPost with headlines, short descriptions, and category labels
+- **Access Method**: Downloaded via Kaggle API
+
+#### 2. UCI News Aggregator Dataset
+- **Source**: Kaggle/UCI ML Repository - [News Aggregator Dataset](https://www.kaggle.com/datasets/uciml/news-aggregator-dataset)
+- **Original Source**: UCI Machine Learning Repository
+- **File**: `uci_categories.parquet`
+- **Description**: News headlines from multiple sources with URLs and category classifications
+- **Access Method**: Downloaded via Kaggle API
+
+#### 3. RecognaSumm Portuguese News Dataset
+- **Source**: Hugging Face Datasets - [recogna-nlp/recognasumm](https://huggingface.co/datasets/recogna-nlp/recognasumm)
+- **Original Author**: Recogna NLP
+- **File**: `recognasumm.parquet`
+- **Description**: Portuguese news articles with titles, subtitles, summaries, and category labels
+- **Access Method**: Downloaded via Hugging Face `datasets` library
+
+### Data Access and Download
+
+**Automated Download Process:**
+The exact steps used to download and prepare the datasets are documented in [`adhoc/raw_data_import.ipynb`](adhoc/raw_data_import.ipynb). This notebook contains:
+- API authentication setup (Kaggle, Hugging Face)
+- Download commands for each dataset
+- Conversion from original formats (JSON, CSV) to Parquet
+- Data validation steps
+
+**Manual Reproduction:**
+To reproduce the data download:
+1. Set up Kaggle API credentials: `~/.kaggle/kaggle.json`
+2. Run the notebook: `uv run jupyter notebook adhoc/raw_data_import.ipynb`
+3. Datasets will be saved to `data/raw/` directory
+
+**Note**: The datasets are provided "as-is" from their original sources. Any updates or changes to the source datasets after June 2025 may result in different data characteristics.
+
 ## Data Requirements
 
 The project expects datasets in the `data/raw/` directory:
