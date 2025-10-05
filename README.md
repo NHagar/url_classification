@@ -2,6 +2,115 @@
 
 A machine learning project for classifying news articles based on URLs, titles, and content features. This repository contains tools for training various classification models, analyzing dataset statistics, and understanding URL structure patterns.
 
+## Quick Start: Reproduction Guide
+
+Follow these steps to reproduce the results from the paper:
+
+### Step 1: Requirements
+
+**Minimum Requirements:**
+- Python 3.12 (required - see compatibility notes below)
+- 16GB RAM
+- 10GB free disk storage
+- CPU with 8+ cores
+
+**For Full Reproduction (including deep learning models):**
+- Python 3.12
+- GPU (A100 or similar recommended)
+- 16GB+ RAM
+- 15GB+ free disk storage
+
+### Step 2: Environment Setup
+
+```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Python 3.12 using uv
+uv python install 3.12
+
+# Create environment and install dependencies with Python 3.12
+uv sync --python 3.12
+
+# Create required directories
+mkdir -p data/processed
+```
+
+**Troubleshooting:** If you encounter PyTorch compatibility issues:
+```bash
+uv pip install --force-reinstall torch==2.4.0
+```
+
+### Step 3: Configure Models and Features (Optional)
+
+Based on your computational resources, you may want to exclude computationally expensive models:
+
+**For laptop/local reproduction** (exclude GPU models):
+- Comment out `distilbert`, `distilbert-1k`, `distilbert-3k`, and `xgboost` in:
+  - `config/ml_configs.yaml`
+  - `url_classification/model_config.py`
+
+**For full reproduction** (keep all models):
+- No changes needed - all models are included by default
+
+### Step 4: Run Reproduction Scripts
+
+Execute the following commands in order to reproduce each table/figure:
+
+**Table 1 - Descriptive Statistics:**
+```bash
+uv run python dataset_descriptive_stats.py
+```
+
+**Table 2 - Model Performance (F1 Scores):**
+```bash
+# Laptop-friendly version (traditional models only, ~2-4 hours)
+uv run -m url_classification.train_and_evaluate \
+  --models log-reg svm tree-ensemble distant-labeling gradient-boosting \
+  --mode evaluate
+
+# Full reproduction (requires GPU, ~48 hours)
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert log-reg svm tree-ensemble distant-labeling gradient-boosting xgboost \
+  --mode evaluate
+```
+
+**Table 3 - Per-Topic Performance:**
+- Same output as Table 2 (per-topic results included in evaluation metrics)
+
+**Table 4 - Date Removal Impact:**
+```bash
+uv run python date_ablation_study.py \
+  --datasets huffpo uci recognasumm \
+  --models log-reg \
+  --features url_path_raw \
+  --mode both
+```
+
+**Figure 1 - Model Throughput:**
+- Throughput metrics are captured during Table 2 evaluation
+
+**Figure 2 - Training Data Ablation:**
+```bash
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert distilbert-1k distilbert-3k \
+  --mode evaluate
+```
+
+**URL Structure Analysis:**
+```bash
+uv run python url_structure_analysis.py
+```
+
+### Step 5: Find Results
+
+All outputs are saved to `data/processed/`:
+- `*_stats.txt` - Dataset statistics (Table 1)
+- `evaluation_metrics*.csv` - Model performance (Tables 2 & 3, Figure 1 throughput data)
+- `date_ablation_*.csv` - Date removal analysis (Table 4)
+- `url_structure_analysis.png` - URL structure visualizations
+- Model artifacts and training metrics for Figure 2 are in evaluation outputs
+
 ## Repository Structure
 
 ```
@@ -22,7 +131,6 @@ url_classification/
             url_structure_analysis.png # URL structure visualizations
             *_test.csv                 # Test set predictions
     models/                            # Trained model artifacts
-        llm-local/                     # Local model storage
     results/                           # Analysis outputs and visualizations
     url_classification/                # Main Python package
         __init__.py
@@ -38,32 +146,191 @@ url_classification/
     *.sh                               # Job submission scripts
 ```
 
-## Main Scripts
+## Main Scripts and Paper Artifacts
 
-### 1. Training and Evaluation Script
+This section maps each table and figure in the paper to the script(s) used to generate it.
 
-**Location**: `url_classification/train_and_evaluate.py`
+### Table 1: Descriptive Statistics
 
-**Purpose**: Train and evaluate various machine learning models for URL/text classification.
+**Script**: `dataset_descriptive_stats.py`
 
+**Output**: Descriptive statistics for the filtered subset of the three benchmarking datasets (rows, unique domains, topics, Gini coefficient, topic label entropy)
 
-### 2. Dataset Descriptive Statistics Script
+**Run**:
+```bash
+uv run python dataset_descriptive_stats.py
+```
 
-**Location**: `dataset_descriptive_stats.py`
+### Table 2: F1 Scores for Model-Feature Combinations
 
-**Purpose**: Generate comprehensive statistics about the datasets including domain distribution, category balance, and cross-dataset comparisons.
+**Script**: `url_classification/train_and_evaluate.py`
 
-### 3. URL Structure Analysis Script
+**Output**: F1 scores for all combinations of models and input features across datasets, including URL-only classification results
 
-**Location**: `url_structure_analysis.py`
+**Run**:
+```bash
+# Run all models and features (full replication)
+uv run -m url_classification.train_and_evaluate --mode evaluate
 
-**Purpose**: Analyze URL structure patterns and their correlation with model performance.
+# Or run specific models
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert log-reg svm tree-ensemble gradient-boosting xgboost \
+  --mode evaluate
+```
+
+**Output files**: `data/processed/evaluation_metrics*.csv`
+
+### Table 3: F1 Scores by Topic and Feature
+
+**Script**: `url_classification/train_and_evaluate.py` (same as Table 2)
+
+**Output**: F1 scores for all combinations of topics and input features across datasets
+
+**Note**: Per-topic results are included in the same evaluation output as Table 2
+
+### Table 4: Impact of Date Removal
+
+**Script**: `date_ablation_study.py`
+
+**Output**: Logistic regression classifier performance with and without dates in URL paths
+
+**Run**:
+```bash
+# Run with default settings (distilbert on uci dataset with url_path_raw)
+uv run python date_ablation_study.py
+
+# Or specify datasets, models, and features
+uv run python date_ablation_study.py \
+  --datasets huffpo uci recognasumm \
+  --models log-reg \
+  --features url_path_raw \
+  --mode both
+```
+
+**Output files**:
+- `data/processed/date_ablation_results_*.csv` (full results)
+- `data/processed/date_ablation_comparison_*.csv` (summary comparison)
+
+### Figure 1: Model Throughput
+
+**Script**: `url_classification/train_and_evaluate.py`
+
+**Output**: Prediction throughput (predictions per second) for each model across datasets
+
+**Note**: Throughput metrics are captured during model evaluation
+
+### Figure 2: Training Data Ablation
+
+**Script**: `url_classification/train_and_evaluate.py` with subset models
+
+**Output**: Effect of training data size on DistilBERT classifier performance
+
+**Run**:
+```bash
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert distilbert-1k distilbert-3k \
+  --mode evaluate
+```
+
+### Additional Analysis Scripts
+
+**URL Structure Analysis**: `url_structure_analysis.py`
+- Analyzes URL structure patterns and their correlation with model performance
+- Generates visualizations of URL components
+
+**Run**:
+```bash
+uv run python url_structure_analysis.py
+```
+
+## Setup and Installation
+
+### Prerequisites
+
+**Python Version**: This project requires **Python 3.12**. While the `pyproject.toml` specifies `>=3.10`, the locked dependencies (particularly PyTorch and related packages) are known to have compatibility issues with Python 3.13+.
+
+**Recommended Setup:**
+```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Python 3.12 using uv
+uv python install 3.12
+
+# Create environment and install dependencies with Python 3.12
+uv sync --python 3.12
+```
+
+### Common Setup Issues
+
+**PyTorch Compatibility Issue**
+If you encounter PyTorch-related errors after initial setup, you may need to reinstall PyTorch:
+```bash
+uv pip install --force-reinstall torch==2.4.0
+```
+
+**Missing Directories**
+The scripts expect a `data/processed/` directory to exist. Create it if needed:
+```bash
+mkdir -p data/processed
+```
+
+**Verification**
+After setup, verify your environment:
+```bash
+python --version  # Should show Python 3.12.x
+uv run python -c "import torch; print(torch.__version__)"  # Should show 2.4.0
+```
+
+## Data Provenance
+
+### Dataset Sources
+
+This study uses three publicly available news classification datasets, all accessed in **June 2025**:
+
+#### 1. HuffPost News Categories Dataset
+- **Source**: Kaggle - [News Category Dataset](https://www.kaggle.com/datasets/rmisra/news-category-dataset)
+- **Original Author**: Rishabh Misra
+- **File**: `news_categories.parquet`
+- **Description**: News articles from HuffPost with headlines, short descriptions, and category labels
+- **Access Method**: Downloaded via Kaggle API
+
+#### 2. UCI News Aggregator Dataset
+- **Source**: Kaggle/UCI ML Repository - [News Aggregator Dataset](https://www.kaggle.com/datasets/uciml/news-aggregator-dataset)
+- **Original Source**: UCI Machine Learning Repository
+- **File**: `uci_categories.parquet`
+- **Description**: News headlines from multiple sources with URLs and category classifications
+- **Access Method**: Downloaded via Kaggle API
+
+#### 3. RecognaSumm Portuguese News Dataset
+- **Source**: Hugging Face Datasets - [recogna-nlp/recognasumm](https://huggingface.co/datasets/recogna-nlp/recognasumm)
+- **Original Author**: Recogna NLP
+- **File**: `recognasumm.parquet`
+- **Description**: Portuguese news articles with titles, subtitles, summaries, and category labels
+- **Access Method**: Downloaded via Hugging Face `datasets` library
+
+### Data Access and Download
+
+**Automated Download Process:**
+The exact steps used to download and prepare the datasets are documented in [`adhoc/raw_data_import.ipynb`](adhoc/raw_data_import.ipynb). This notebook contains:
+- API authentication setup (Kaggle, Hugging Face)
+- Download commands for each dataset
+- Conversion from original formats (JSON, CSV) to Parquet
+- Data validation steps
+
+**Manual Reproduction:**
+To reproduce the data download:
+1. Set up Kaggle API credentials: `~/.kaggle/kaggle.json`
+2. Run the notebook: `uv run jupyter notebook adhoc/raw_data_import.ipynb`
+3. Datasets will be saved to `data/raw/` directory
+
+**Note**: The datasets are provided "as-is" from their original sources. Any updates or changes to the source datasets after June 2025 may result in different data characteristics.
 
 ## Data Requirements
 
 The project expects datasets in the `data/raw/` directory:
 - `news_categories.parquet` - HuffPost news categories
-- `recognasumm.parquet` - RecognaSumm dataset  
+- `recognasumm.parquet` - RecognaSumm dataset
 - `uci_categories.parquet` - UCI news aggregator dataset
 
 ## Model Configuration
@@ -71,3 +338,121 @@ The project expects datasets in the `data/raw/` directory:
 Model settings are managed through:
 - `config/ml_configs.yaml` - YAML configuration file
 - `url_classification/model_config.py` - Python configuration management
+
+## Computational Requirements and Runtime
+
+### Resource Requirements by Model Type
+
+The computational demands vary significantly across models. Below are the resource allocations used in the original study (see SLURM scripts: [gpu.sh](gpu.sh), [short.sh](short.sh), [long.sh](long.sh)):
+
+**Deep Learning Models (distilbert, distilbert-1k, distilbert-3k, xgboost)**
+- **Hardware**: GPU (A100) with 8 CPUs
+- **Memory**: ~16GB RAM
+- **Time**: Up to 8 hours for full runs
+- **Storage**: ~10-15GB free space required
+- **Note**: These models are **impractical to run on standard laptops** due to computational demands
+
+**Traditional ML Models (log-reg, svm, tree-ensemble, distant-labeling, gradient-boosting)**
+- **Hardware**: CPU-only (8-16 cores)
+- **Memory**: ~16GB RAM
+- **Time**: 1-4 hours for full runs
+- **Storage**: ~5-10GB free space required
+- **Note**: Can run on standard laptops but may take significantly longer
+
+### Recommended Reproduction Scenarios
+
+For easier reproduction, consider these scenarios:
+
+**Scenario 1: Quick Test (Laptop-friendly)**
+```bash
+# Run lightweight models only (~45-90 minutes on standard laptop)
+uv run -m url_classification.train_and_evaluate \
+  --models log-reg svm distant-labeling \
+  --datasets huffpo
+```
+**Requirements**: 16GB RAM, SSD with 5GB free space
+
+**Scenario 2: Traditional Models Only (No GPU)**
+```bash
+# All non-deep learning models (~2-4 hours on standard laptop)
+uv run -m url_classification.train_and_evaluate \
+  --models log-reg svm tree-ensemble distant-labeling gradient-boosting \
+  --mode evaluate
+```
+**Requirements**: 16GB RAM, 8+ CPU cores, SSD with 10GB free space
+
+**Scenario 3: Full Reproduction (Requires HPC/GPU)**
+```bash
+# Complete replication including deep learning models
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert distilbert-1k distilbert-3k xgboost \
+  --mode evaluate
+```
+**Requirements**: GPU (preferably A100 or similar), 16GB+ RAM, 15GB+ storage
+
+### Configuring Models and Features
+
+To include/exclude specific models or features:
+
+**Via Command Line:**
+```bash
+# Specify models
+uv run -m url_classification.train_and_evaluate --models log-reg svm
+
+# Specify features
+uv run -m url_classification.train_and_evaluate --features url_raw title
+
+# Specify datasets
+uv run -m url_classification.train_and_evaluate --datasets huffpo uci
+```
+
+**Via Configuration Files:**
+- Comment out models in `config/ml_configs.yaml` to exclude them
+- Comment out models in `url_classification/model_config.py` to exclude them
+
+**Note**: By default, distilbert and xgboost are included but may be excluded for laptop-based reproduction.
+
+## Package Dependencies
+
+The project uses the following key packages (complete list in `pyproject.toml`):
+
+### Core Dependencies
+```
+python = 3.12
+torch = 2.4.0
+transformers = 4.44.0
+scikit-learn = 1.5.1
+xgboost = 2.1.1
+sentence-transformers = 3.0.1
+```
+
+### Data Processing
+```
+pandas = 2.2.2
+numpy = 1.26.4
+pyarrow = 17.0.0
+duckdb = 1.0.0
+datasets = 2.21.0
+```
+
+### Visualization
+```
+matplotlib >= 3.10.3
+seaborn >= 0.13.2
+```
+
+### Other Key Packages
+```
+accelerate = 0.33.0
+huggingface-hub = 0.24.5
+evaluate = 0.4.2
+tokenizers = 0.19.1
+safetensors = 0.4.4
+tldextract >= 5.3.0
+pyyaml = 6.0.2
+```
+
+For a complete list of all dependencies with exact versions, see `pyproject.toml` or run:
+```bash
+uv pip list
+```
