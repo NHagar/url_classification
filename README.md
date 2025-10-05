@@ -87,8 +87,20 @@ uv run -m url_classification.train_and_evaluate \
 
 **Run**:
 ```bash
+# Run with default settings (distilbert on uci dataset with url_path_raw)
 uv run python date_ablation_study.py
+
+# Or specify datasets, models, and features
+uv run python date_ablation_study.py \
+  --datasets huffpo uci recognasumm \
+  --models log-reg \
+  --features url_path_raw \
+  --mode both
 ```
+
+**Output files**:
+- `data/processed/date_ablation_results_*.csv` (full results)
+- `data/processed/date_ablation_comparison_*.csv` (summary comparison)
 
 ### Figure 1: Model Throughput
 
