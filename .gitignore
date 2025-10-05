@@ -11,3 +11,5 @@ pull_results.sh
 upload_mapping.sh
 test.py
 test.ipynb
+models_with_dates/
+models_no_dates/
