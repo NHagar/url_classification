@@ -22,7 +22,6 @@ url_classification/
             url_structure_analysis.png # URL structure visualizations
             *_test.csv                 # Test set predictions
     models/                            # Trained model artifacts
-        llm-local/                     # Local model storage
     results/                           # Analysis outputs and visualizations
     url_classification/                # Main Python package
         __init__.py

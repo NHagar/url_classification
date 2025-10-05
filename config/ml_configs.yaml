@@ -72,24 +72,6 @@ models:
     model_params:
       learning_rate: 0.1
       random_state: 42
-  llm-local:
-    type: llm
-    params:
-      model_name: phi-4
-      base_url: http://localhost:1234/v1
-      api_key: lm-studio
-      temperature: 0
-      batch_size: 10
-    prompt_template:
-      system: You are a text classifier. Given a text sample, classify it into one
-        of the provided categories. Respond with only the category name, nothing else.
-      user: 'Categories: {categories}
-
-
-        Text to classify: {text}
-
-
-        Category:'
   distilbert-1k:
     type: deep
     subset_size: 1000
