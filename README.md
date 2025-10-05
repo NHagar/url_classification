@@ -37,26 +37,90 @@ url_classification/
     *.sh                               # Job submission scripts
 ```
 
-## Main Scripts
+## Main Scripts and Paper Artifacts
 
-### 1. Training and Evaluation Script
+This section maps each table and figure in the paper to the script(s) used to generate it.
 
-**Location**: `url_classification/train_and_evaluate.py`
+### Table 1: Descriptive Statistics
 
-**Purpose**: Train and evaluate various machine learning models for URL/text classification.
+**Script**: `dataset_descriptive_stats.py`
 
+**Output**: Descriptive statistics for the filtered subset of the three benchmarking datasets (rows, unique domains, topics, Gini coefficient, topic label entropy)
 
-### 2. Dataset Descriptive Statistics Script
+**Run**:
+```bash
+uv run python dataset_descriptive_stats.py
+```
 
-**Location**: `dataset_descriptive_stats.py`
+### Table 2: F1 Scores for Model-Feature Combinations
 
-**Purpose**: Generate comprehensive statistics about the datasets including domain distribution, category balance, and cross-dataset comparisons.
+**Script**: `url_classification/train_and_evaluate.py`
 
-### 3. URL Structure Analysis Script
+**Output**: F1 scores for all combinations of models and input features across datasets, including URL-only classification results
 
-**Location**: `url_structure_analysis.py`
+**Run**:
+```bash
+# Run all models and features (full replication)
+uv run -m url_classification.train_and_evaluate --mode evaluate
 
-**Purpose**: Analyze URL structure patterns and their correlation with model performance.
+# Or run specific models
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert log-reg svm tree-ensemble gradient-boosting xgboost \
+  --mode evaluate
+```
+
+**Output files**: `data/processed/evaluation_metrics*.csv`
+
+### Table 3: F1 Scores by Topic and Feature
+
+**Script**: `url_classification/train_and_evaluate.py` (same as Table 2)
+
+**Output**: F1 scores for all combinations of topics and input features across datasets
+
+**Note**: Per-topic results are included in the same evaluation output as Table 2
+
+### Table 4: Impact of Date Removal
+
+**Script**: `date_ablation_study.py`
+
+**Output**: Logistic regression classifier performance with and without dates in URL paths
+
+**Run**:
+```bash
+uv run python date_ablation_study.py
+```
+
+### Figure 1: Model Throughput
+
+**Script**: `url_classification/train_and_evaluate.py`
+
+**Output**: Prediction throughput (predictions per second) for each model across datasets
+
+**Note**: Throughput metrics are captured during model evaluation
+
+### Figure 2: Training Data Ablation
+
+**Script**: `url_classification/train_and_evaluate.py` with subset models
+
+**Output**: Effect of training data size on DistilBERT classifier performance
+
+**Run**:
+```bash
+uv run -m url_classification.train_and_evaluate \
+  --models distilbert distilbert-1k distilbert-3k \
+  --mode evaluate
+```
+
+### Additional Analysis Scripts
+
+**URL Structure Analysis**: `url_structure_analysis.py`
+- Analyzes URL structure patterns and their correlation with model performance
+- Generates visualizations of URL components
+
+**Run**:
+```bash
+uv run python url_structure_analysis.py
+```
 
 ## Setup and Installation
 
@@ -182,3 +246,48 @@ uv run -m url_classification.train_and_evaluate --datasets huffpo uci
 - Comment out models in `url_classification/model_config.py` to exclude them
 
 **Note**: By default, distilbert and xgboost are included but may be excluded for laptop-based reproduction.
+
+## Package Dependencies
+
+The project uses the following key packages (complete list in `pyproject.toml`):
+
+### Core Dependencies
+```
+python = 3.12
+torch = 2.4.0
+transformers = 4.44.0
+scikit-learn = 1.5.1
+xgboost = 2.1.1
+sentence-transformers = 3.0.1
+```
+
+### Data Processing
+```
+pandas = 2.2.2
+numpy = 1.26.4
+pyarrow = 17.0.0
+duckdb = 1.0.0
+datasets = 2.21.0
+```
+
+### Visualization
+```
+matplotlib >= 3.10.3
+seaborn >= 0.13.2
+```
+
+### Other Key Packages
+```
+accelerate = 0.33.0
+huggingface-hub = 0.24.5
+evaluate = 0.4.2
+tokenizers = 0.19.1
+safetensors = 0.4.4
+tldextract >= 5.3.0
+pyyaml = 6.0.2
+```
+
+For a complete list of all dependencies with exact versions, see `pyproject.toml` or run:
+```bash
+uv pip list
+```
