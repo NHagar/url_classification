@@ -58,11 +58,50 @@ url_classification/
 
 **Purpose**: Analyze URL structure patterns and their correlation with model performance.
 
+## Setup and Installation
+
+### Prerequisites
+
+**Python Version**: This project requires **Python 3.12**. While the `pyproject.toml` specifies `>=3.10`, the locked dependencies (particularly PyTorch and related packages) are known to have compatibility issues with Python 3.13+.
+
+**Recommended Setup:**
+```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Python 3.12 using uv
+uv python install 3.12
+
+# Create environment and install dependencies with Python 3.12
+uv sync --python 3.12
+```
+
+### Common Setup Issues
+
+**PyTorch Compatibility Issue**
+If you encounter PyTorch-related errors after initial setup, you may need to reinstall PyTorch:
+```bash
+uv pip install --force-reinstall torch==2.4.0
+```
+
+**Missing Directories**
+The scripts expect a `data/processed/` directory to exist. Create it if needed:
+```bash
+mkdir -p data/processed
+```
+
+**Verification**
+After setup, verify your environment:
+```bash
+python --version  # Should show Python 3.12.x
+uv run python -c "import torch; print(torch.__version__)"  # Should show 2.4.0
+```
+
 ## Data Requirements
 
 The project expects datasets in the `data/raw/` directory:
 - `news_categories.parquet` - HuffPost news categories
-- `recognasumm.parquet` - RecognaSumm dataset  
+- `recognasumm.parquet` - RecognaSumm dataset
 - `uci_categories.parquet` - UCI news aggregator dataset
 
 ## Model Configuration
